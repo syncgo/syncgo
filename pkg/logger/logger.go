@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+func init() {
+	NewLogger()
+}
+
 const defaultLevel = slog.LevelDebug
 
 func NewLogger() {
