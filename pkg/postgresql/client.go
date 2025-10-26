@@ -30,6 +30,7 @@ type LogicalReplicationConn struct {
 
 	plugin     string
 	pluginArgs []string
+	inStream   bool
 	v2         bool
 
 	xLogPos               pglogrepl.LSN
@@ -38,7 +39,6 @@ type LogicalReplicationConn struct {
 
 const (
 	pgOutputPlugin = "pgoutput"
-	wal2JsonPlugin = "wal2json"
 )
 
 func New(ctx context.Context, cfg Config) (*LogicalReplicationConn, error) {
@@ -69,9 +69,18 @@ func New(ctx context.Context, cfg Config) (*LogicalReplicationConn, error) {
 		conn:                  conn,
 		slotName:              "pglogrepl_demo",
 		plugin:                pgOutputPlugin,
-		v2:                    false,
+		v2:                    true,
+		inStream:              false,
 		standbyMessageTimeout: time.Second * 10,
 	}
+
+	// if err := replicationConn.dropPublication(ctx); err != nil {
+	// 	return nil, err
+	// }
+	//
+	// if err := replicationConn.createPublication(ctx); err != nil {
+	// 	return nil, err
+	// }
 
 	switch replicationConn.plugin {
 	case pgOutputPlugin:
@@ -81,8 +90,6 @@ func New(ctx context.Context, cfg Config) (*LogicalReplicationConn, error) {
 			"messages 'true'",
 			"streaming 'true'",
 		}
-	case wal2JsonPlugin:
-		replicationConn.pluginArgs = []string{"\"pretty-print\" 'true'"}
 	}
 
 	sysident, err := pglogrepl.IdentifySystem(ctx, conn)
@@ -138,6 +145,26 @@ func (c *LogicalReplicationConn) Close() error {
 	return nil
 }
 
+func (c *LogicalReplicationConn) createPublication(ctx context.Context) error {
+	result := c.conn.Exec(ctx, "CREATE PUBLICATION pglogrepl_demo FOR ALL TABLES;")
+	if _, err := result.ReadAll(); err != nil {
+		slog.Error("failed to create publication", slog.String("err", err.Error()))
+		return err
+	}
+
+	return nil
+}
+
+func (c *LogicalReplicationConn) dropPublication(ctx context.Context) error {
+	result := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS pglogrepl_demo;")
+	if _, err := result.ReadAll(); err != nil {
+		slog.Error("failed to create publication", slog.String("err", err.Error()))
+		return err
+	}
+
+	return nil
+}
+
 func (c *LogicalReplicationConn) createReplicationSlot(ctx context.Context, slotName string, temporary bool) error {
 	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin, pglogrepl.CreateReplicationSlotOptions{Temporary: temporary})
 	if err != nil {
@@ -172,12 +199,10 @@ func (c *LogicalReplicationConn) startReplication(ctx context.Context, slotName 
 // }
 
 func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, clientXLogPos pglogrepl.LSN, relations map[uint32]*pglogrepl.RelationMessage, relationsV2 map[uint32]*pglogrepl.RelationMessageV2, typeMap *pgtype.Map) error {
-	inStream := false
-
 	standbyStatusTicker := time.NewTicker(c.standbyMessageTimeout)
 	defer standbyStatusTicker.Stop()
 
-	for {
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			slog.Error("context done, stopping read replication messages")
@@ -205,8 +230,11 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 			msg, ok := rawMsg.(*pgproto3.CopyData)
 			if !ok {
 				slog.Warn("received unexpected message", slog.String("type", fmt.Sprintf("%T", rawMsg)))
+				slog.Debug("received message", slog.String("message", fmt.Sprintf("%+v", rawMsg)))
 				continue
 			}
+
+			slog.Debug("received copy data message", slog.String("byte", string(msg.Data[0])))
 
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
@@ -236,19 +264,15 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 					return err
 				}
 
-				if c.plugin == wal2JsonPlugin {
-					slog.Debug("wal2json data", slog.String("data", string(xld.WALData)))
+				slog.Debug("xlog data",
+					slog.String("walStart", xld.WALStart.String()),
+					slog.String("serverWALEnd", xld.ServerWALEnd.String()),
+					slog.Time("serverTime", xld.ServerTime),
+				)
+				if c.v2 {
+					processV2(xld.WALData, relationsV2, typeMap, &c.inStream)
 				} else {
-					slog.Debug("xlog data",
-						slog.String("walStart", xld.WALStart.String()),
-						slog.String("serverWALEnd", xld.ServerWALEnd.String()),
-						slog.Time("serverTime", xld.ServerTime),
-					)
-					if c.v2 {
-						processV2(xld.WALData, relationsV2, typeMap, &inStream)
-					} else {
-						processV1(xld.WALData, relations, typeMap)
-					}
+					processV1(xld.WALData, relations, typeMap)
 				}
 
 				if xld.WALStart > clientXLogPos {
@@ -257,6 +281,8 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 			}
 		}
 	}
+
+	return ctx.Err()
 }
 
 func (c *LogicalReplicationConn) sendStandbyStatusUpdate(ctx context.Context, clientXLogPos pglogrepl.LSN) error {
@@ -292,7 +318,7 @@ func processV2(walData []byte, relations map[uint32]*pglogrepl.RelationMessageV2
 			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
 			return
 		}
-		values := map[string]interface{}{}
+		values := map[string]any{}
 		for idx, col := range logicalMsg.Tuple.Columns {
 			colName := rel.Columns[idx].Name
 			switch col.DataType {
@@ -376,7 +402,7 @@ func processV1(walData []byte, relations map[uint32]*pglogrepl.RelationMessage, 
 			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
 			return
 		}
-		values := map[string]interface{}{}
+		values := map[string]any{}
 		for idx, col := range logicalMsg.Tuple.Columns {
 			colName := rel.Columns[idx].Name
 			switch col.DataType {
@@ -431,7 +457,7 @@ func processV1(walData []byte, relations map[uint32]*pglogrepl.RelationMessage, 
 	}
 }
 
-func decodeTextColumnData(mi *pgtype.Map, data []byte, dataType uint32) (interface{}, error) {
+func decodeTextColumnData(mi *pgtype.Map, data []byte, dataType uint32) (any, error) {
 	if dt, ok := mi.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(mi, dataType, pgtype.TextFormatCode, data)
 	}

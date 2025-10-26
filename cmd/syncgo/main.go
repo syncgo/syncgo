@@ -37,10 +37,10 @@ func initPostgresqlReplicationConn(ctx context.Context) (*postgresql.LogicalRepl
 	defer cancel()
 
 	return postgresql.New(postgresqlCtx, postgresql.Config{
-		User:     "postgres",
-		Password: "postgres",
+		User:     "pglogrepl",
+		Password: "secret",
 		Host:     "localhost",
 		Port:     "5432",
-		Database: "postgres",
+		Database: "pglogrepl",
 	})
 }
