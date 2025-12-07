@@ -425,12 +425,14 @@ func processV1(walData []byte, relations map[uint32]*pglogrepl.RelationMessage, 
 			slog.Any("values", values),
 		)
 
+		// todo bulk insert into elasticsearch
+
 	case *pglogrepl.UpdateMessage:
-		// ...
+		// todo bulk update into elasticsearch
 	case *pglogrepl.DeleteMessage:
-		// ...
+		// todo bulk delete into elasticsearch
 	case *pglogrepl.TruncateMessage:
-		// ...
+		// todo maybe bulk delete into elasticsearch
 
 	case *pglogrepl.TypeMessage:
 	case *pglogrepl.OriginMessage:
