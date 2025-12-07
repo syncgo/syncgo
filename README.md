@@ -9,4 +9,3 @@ make setup
 make syncgo_run
 make generator
 ```
-
