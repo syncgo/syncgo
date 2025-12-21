@@ -30,3 +30,15 @@ build:
 syncgo_run: build
 	./bin/syncgo
 
+dev_build:
+	docker-compose -f dev.docker-compose.yaml up --build
+
+dev_down:
+	docker-compose -f dev.docker-compose.yaml down
+
+dev_stop:
+	docker-compose -f dev.docker-compose.yaml stop
+
+dev_start:
+	docker-compose -f dev.docker-compose.yaml start
+

@@ -65,7 +65,6 @@ volumes:
   opensearch_data:
     driver: local
 
-
 networks:
   syncgo-network:
     driver: bridge
