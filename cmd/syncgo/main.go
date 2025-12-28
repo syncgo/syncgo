@@ -11,7 +11,11 @@ import (
 	"github.com/romanchechyotkin/syncgo/internal/replication"
 	"github.com/romanchechyotkin/syncgo/pkg/elasticsearch"
 	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
+	"github.com/romanchechyotkin/syncgo/pkg/opensearch"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
+
+	es "github.com/elastic/go-elasticsearch/v9"
+	opensearchapi "github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
 
 const cancelTimeoutVarByNastya = 30 * time.Second
@@ -32,6 +36,13 @@ func main() {
 	}
 	_ = esClient
 
+	osClient, err := initOpenSearchClient(initCtx)
+	if err != nil {
+		slog.Error("failed init os connection", slog.String("err", err.Error()))
+		os.Exit(1)
+	}
+	_ = osClient
+
 	replicationConn, err := initPostgresqlReplicationConn(initCtx)
 	if err != nil {
 		slog.Error("failed init postgresql connection", slog.String("err", err.Error()))
@@ -46,12 +57,11 @@ func main() {
 	replicationConn.Close()
 }
 
-func initEsClient(ctx context.Context) (elasticsearch.Client, error) {
+func initEsClient(ctx context.Context) (*es.Client, error) {
 	esClient, err := elasticsearch.New(ctx, elasticsearch.Config{
-		Addresses:   []string{"http://localhost:9200"},
-		Username:    "admin",
-		Password:    "Op3nS3arch!",
-		ServiceType: elasticsearch.OpenSearch,
+		Addresses: []string{"http://localhost:9200"},
+		Username:  "admin",
+		Password:  "Es123456",
 	})
 	if err != nil {
 		slog.Error("failed to created", slog.String("error", err.Error()))
@@ -59,6 +69,20 @@ func initEsClient(ctx context.Context) (elasticsearch.Client, error) {
 	}
 
 	return esClient, nil
+}
+
+func initOpenSearchClient(ctx context.Context) (*opensearchapi.Client, error) {
+	osClient, err := opensearch.New(ctx, opensearch.Config{
+		Addresses: []string{"http://localhost:9300"},
+		Username:  "admin",
+		Password:  "Op3nS3arch!",
+	})
+	if err != nil {
+		slog.Error("failed to created", slog.String("error", err.Error()))
+		return nil, err
+	}
+
+	return osClient, nil
 }
 
 func initPostgresqlReplicationConn(ctx context.Context) (*replication.LogicalReplicationConn, error) {
