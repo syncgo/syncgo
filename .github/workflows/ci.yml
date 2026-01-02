@@ -37,6 +37,59 @@ jobs:
       fail-fast: false
       matrix:
         flags: [ '', '-race' ]
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:9.2.3
+        env:
+          discovery.type: single-node
+          bootstrap.memory_lock: "true"
+          DISABLE_SECURITY_PLUGIN: "true"
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+          ELASTIC_PASSWORD: "Es123456"
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 30s
+          --health-timeout 10s
+          --health-retries 5
+          --ulimit memlock=-1:-1
+          --ulimit nofile=65536:65536
+        ports:
+          - 9200:9200
+
+      opensearch:
+        image: opensearchproject/opensearch:2.18.0
+        env:
+          discovery.type: single-node
+          bootstrap.memory_lock: "true"
+          OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+          DISABLE_INSTALL_DEMO_CONFIG: "true"
+          DISABLE_SECURITY_PLUGIN: "true"
+          OPENSEARCH_INITIAL_ADMIN_PASSWORD: "Op3nS3arch!"
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 30s
+          --health-timeout 10s
+          --health-retries 5
+          --ulimit memlock=-1:-1
+          --ulimit nofile=65536:65536
+        ports:
+          - 9300:9200
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -50,11 +103,31 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Wait for services to be ready
+        run: |
+          echo "Installing PostgreSQL client..."
+          sudo apt-get update && sudo apt-get install -y postgresql-client || true
+          
+          echo "Waiting for PostgreSQL..."
+          timeout 60 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done' || true
+          
+          echo "Waiting for Elasticsearch..."
+          timeout 120 bash -c 'until curl -f http://localhost:9200/_cluster/health; do sleep 2; done' || true
+          
+          echo "Waiting for OpenSearch..."
+          timeout 120 bash -c 'until curl -f http://localhost:9300/_cluster/health; do sleep 2; done' || true
+
       - name: Test
         env:
           LOG_LEVEL: error
+          ELASTICSEARCH_ADDRESS: http://localhost:9200
+          ELASTICSEARCH_USER: admin
+          ELASTICSEARCH_PASSWORD: Es123456
+          OPENSEARCH_ADDRESS: http://localhost:9300
+          OPENSEARCH_USER: admin
+          OPENSEARCH_PASSWORD: Op3nS3arch!
 
-        run: go test -short -coverprofile=profile${{ matrix.flags }}.out -covermode=atomic ${{ matrix.flags }} -coverpkg=./... ./...
+        run: go test -coverprofile=profile${{ matrix.flags }}.out -covermode=atomic ${{ matrix.flags }} -coverpkg=./... ./...
 
       - name: Strip generated files from coverage
         run: |
@@ -86,12 +159,7 @@ jobs:
           version: latest
           only-new-issues: false
           args: --timeout 5m
-          # Package/build cache already provided above.
-          #
-          # Disable module cache.
-          skip-pkg-cache: true
-          # Disable build cache.
-          skip-build-cache: true
+          skip-cache: true
 
       - name: Install goimports
         run: go install golang.org/x/tools/cmd/goimports@latest
@@ -104,7 +172,7 @@ jobs:
             ! -name '*.pb.go' \
             ! -name '*.pb.gw.go' \
             ! -name '*_mock.go' \
-            -exec goimports -w -local 'github.com/ozontech/seq-db' {} +
+            -exec goimports -w -local 'github.com/romanchechyotkin/syncgo' {} +
           if [ -n "$(git status --porcelain)" ]; then
             echo 'Codebase is not goimports-ed. Please run `make imports`'
             git --no-pager diff

@@ -28,7 +28,7 @@ build:
 	go build -o bin ./...
 
 syncgo_run: build
-	./bin/syncgo
+	./bin/syncgo --config=dev.config.yaml
 
 dev_build:
 	docker-compose -f dev.docker-compose.yaml up --build
@@ -42,3 +42,5 @@ dev_stop:
 dev_start:
 	docker-compose -f dev.docker-compose.yaml start
 
+test:
+	go test ./... -v -short

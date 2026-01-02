@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	opensearchapi "github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
+
+type Client struct {
+	client *opensearchapi.Client
+	index  string
+}
 
 type Config struct {
 	Addresses []string
@@ -16,17 +20,10 @@ type Config struct {
 	Password  string
 	APIKey    string
 	CloudID   string
+	Index     string
 }
 
-func New(ctx context.Context, cfg Config) (*opensearchapi.Client, error) {
-	slog.Debug("elasticsearch/opensearch config",
-		slog.String("addresses", strings.Join(cfg.Addresses, ",")),
-		slog.String("username", cfg.Username),
-		slog.Bool("has_password", cfg.Password != ""),
-		slog.Bool("has_api_key", cfg.APIKey != ""),
-		slog.Bool("has_cloud_id", cfg.CloudID != ""),
-	)
-
+func New(ctx context.Context, cfg Config) (*Client, error) {
 	opensearchCfg := opensearchapi.Config{
 		Client: opensearch.Config{
 			Addresses: cfg.Addresses,
@@ -40,7 +37,6 @@ func New(ctx context.Context, cfg Config) (*opensearchapi.Client, error) {
 		return nil, err
 	}
 
-	// Test the connection
 	res, err := client.Ping(ctx, &opensearchapi.PingReq{})
 	if err != nil {
 		slog.Error("failed to ping opensearch", slog.String("error", err.Error()))
@@ -60,5 +56,12 @@ func New(ctx context.Context, cfg Config) (*opensearchapi.Client, error) {
 
 	slog.Debug("opensearch connection established successfully")
 
-	return client, nil
+	return &Client{
+		client: client,
+		index:  cfg.Index,
+	}, nil
+}
+
+func (c *Client) Bulk(ctx context.Context, data []byte) error {
+	return nil
 }

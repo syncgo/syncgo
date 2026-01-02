@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/elastic/go-elasticsearch/v9"
 )
@@ -15,17 +14,15 @@ type Config struct {
 	Password  string
 	APIKey    string
 	CloudID   string
+	Index     string
 }
 
-func New(ctx context.Context, cfg Config) (*elasticsearch.Client, error) {
-	slog.Debug("elasticsearch config",
-		slog.String("addresses", strings.Join(cfg.Addresses, ",")),
-		slog.String("username", cfg.Username),
-		slog.Bool("has_password", cfg.Password != ""),
-		slog.Bool("has_api_key", cfg.APIKey != ""),
-		slog.Bool("has_cloud_id", cfg.CloudID != ""),
-	)
+type Client struct {
+	client *elasticsearch.Client
+	index  string
+}
 
+func New(ctx context.Context, cfg Config) (*Client, error) {
 	esCfg := elasticsearch.Config{
 		Addresses: cfg.Addresses,
 		Username:  cfg.Username,
@@ -40,7 +37,6 @@ func New(ctx context.Context, cfg Config) (*elasticsearch.Client, error) {
 		return nil, err
 	}
 
-	// Test the connection
 	res, err := client.Ping(client.Ping.WithContext(ctx))
 	if err != nil {
 		slog.Error("failed to ping elasticsearch", slog.String("error", err.Error()))
@@ -60,5 +56,12 @@ func New(ctx context.Context, cfg Config) (*elasticsearch.Client, error) {
 
 	slog.Debug("elasticsearch connection established successfully")
 
-	return client, nil
+	return &Client{
+		client: client,
+		index:  cfg.Index,
+	}, nil
+}
+
+func (c *Client) Bulk(ctx context.Context, data []byte) error {
+	return nil
 }

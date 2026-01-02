@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,16 +10,14 @@ import (
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/replication"
+	"github.com/romanchechyotkin/syncgo/pkg/config"
 	"github.com/romanchechyotkin/syncgo/pkg/elasticsearch"
 	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
 	"github.com/romanchechyotkin/syncgo/pkg/opensearch"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
-
-	es "github.com/elastic/go-elasticsearch/v9"
-	opensearchapi "github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
 
-const cancelTimeoutVarByNastya = 30 * time.Second
+const cancelTimeout = 30 * time.Second
 
 func main() {
 	ctx := context.Background()
@@ -26,24 +25,34 @@ func main() {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	initCtx, cancel := context.WithTimeout(ctx, cancelTimeoutVarByNastya)
+	initCtx, cancel := context.WithTimeout(ctx, cancelTimeout)
 	defer cancel()
 
-	esClient, err := initEsClient(initCtx)
+	configPath := parseConfigFlag()
+
+	cfg, err := config.LoadFromYAML(configPath)
 	if err != nil {
-		slog.Error("failed init es connection", slog.String("err", err.Error()))
+		slog.Error("failed to load config", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
-	_ = esClient
 
-	osClient, err := initOpenSearchClient(initCtx)
-	if err != nil {
-		slog.Error("failed init os connection", slog.String("err", err.Error()))
-		os.Exit(1)
+	if cfg.IsElastic {
+		esClient, err := initEsClient(initCtx, cfg)
+		if err != nil {
+			slog.Error("failed init es connection", slog.String("err", err.Error()))
+			os.Exit(1)
+		}
+		_ = esClient
+	} else if cfg.IsOpenSearch {
+		osClient, err := initOpenSearchClient(initCtx, cfg)
+		if err != nil {
+			slog.Error("failed init os connection", slog.String("err", err.Error()))
+			os.Exit(1)
+		}
+		_ = osClient
 	}
-	_ = osClient
 
-	replicationConn, err := initPostgresqlReplicationConn(initCtx)
+	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg)
 	if err != nil {
 		slog.Error("failed init postgresql connection", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -57,45 +66,58 @@ func main() {
 	replicationConn.Close()
 }
 
-func initEsClient(ctx context.Context) (*es.Client, error) {
+func initEsClient(ctx context.Context, cfg *config.Config) (*elasticsearch.Client, error) {
 	esClient, err := elasticsearch.New(ctx, elasticsearch.Config{
-		Addresses: []string{"http://localhost:9200"},
-		Username:  "admin",
-		Password:  "Es123456",
+		Addresses: cfg.Search.Addresses,
+		Username:  cfg.Search.Username,
+		Password:  cfg.Search.Password,
+		Index:     cfg.Search.Index,
 	})
 	if err != nil {
-		slog.Error("failed to created", slog.String("error", err.Error()))
+		slog.Error("failed to create elasticsearch client", slog.String("error", err.Error()))
 		return nil, err
 	}
 
 	return esClient, nil
 }
 
-func initOpenSearchClient(ctx context.Context) (*opensearchapi.Client, error) {
+func initOpenSearchClient(ctx context.Context, cfg *config.Config) (*opensearch.Client, error) {
 	osClient, err := opensearch.New(ctx, opensearch.Config{
-		Addresses: []string{"http://localhost:9300"},
-		Username:  "admin",
-		Password:  "Op3nS3arch!",
+		Addresses: cfg.Search.Addresses,
+		Username:  cfg.Search.Username,
+		Password:  cfg.Search.Password,
+		Index:     cfg.Search.Index,
 	})
 	if err != nil {
-		slog.Error("failed to created", slog.String("error", err.Error()))
+		slog.Error("failed to create opensearch client", slog.String("error", err.Error()))
 		return nil, err
 	}
 
 	return osClient, nil
 }
 
-func initPostgresqlReplicationConn(ctx context.Context) (*replication.LogicalReplicationConn, error) {
+func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config) (*replication.LogicalReplicationConn, error) {
 	conn, err := postgresql.New(ctx, postgresql.Config{
-		User:     "pglogrepl",
-		Password: "secret",
-		Host:     "localhost",
-		Port:     "5432",
-		Database: "pglogrepl",
+		User:     cfg.PostgreSQL.User,
+		Password: cfg.PostgreSQL.Password,
+		Host:     cfg.PostgreSQL.Host,
+		Port:     cfg.PostgreSQL.Port,
+		Database: cfg.PostgreSQL.Database,
 	})
 	if err != nil {
+		slog.Error("failed to create postgresql connection", slog.String("error", err.Error()))
 		return nil, err
 	}
 
 	return replication.New(ctx, conn)
+}
+
+func parseConfigFlag() string {
+	var configPath string
+
+	flag.StringVar(&configPath, "config", "", "Path to configuration file (YAML)")
+	flag.StringVar(&configPath, "cfg", "", "Path to configuration file (YAML) (shorthand for --config)")
+	flag.Parse()
+
+	return configPath
 }
