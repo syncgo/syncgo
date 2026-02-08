@@ -210,7 +210,9 @@ is_opensearch: false
 						t.Fatalf("failed to create test file: %v", err)
 					}
 					cleanup = func() {
-						os.Remove(testPath)
+						if err := os.Remove(testPath); err != nil {
+							t.Fatalf("failed to remove test file: %v", err)
+						}
 					}
 				} else {
 					tmpFile, err := os.CreateTemp("", "test-config-*.yaml")
@@ -218,15 +220,21 @@ is_opensearch: false
 						t.Fatalf("failed to create temp file: %v", err)
 					}
 					testPath = tmpFile.Name()
-					tmpFile.Close()
+					if err := tmpFile.Close(); err != nil {
+						t.Fatalf("failed to close temp file: %v", err)
+					}
 
 					err = os.WriteFile(testPath, []byte(tt.yamlContent), 0644)
 					if err != nil {
-						os.Remove(testPath)
+						if err := os.Remove(testPath); err != nil {
+							t.Fatalf("failed to remove test file: %v", err)
+						}
 						t.Fatalf("failed to write test file: %v", err)
 					}
 					cleanup = func() {
-						os.Remove(testPath)
+						if err := os.Remove(testPath); err != nil {
+							t.Fatalf("failed to remove test file: %v", err)
+						}
 					}
 				}
 			} else if tt.path != "" {

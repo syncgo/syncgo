@@ -63,7 +63,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	replicationConn.Close()
+	if err = replicationConn.Close(); err != nil {
+		slog.Error("failed to close replication", slog.String("err", err.Error()))
+		os.Exit(1)
+	}
 }
 
 func initEsClient(ctx context.Context, cfg *config.Config) (*elasticsearch.Client, error) {

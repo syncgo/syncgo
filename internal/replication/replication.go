@@ -113,25 +113,25 @@ func (c *LogicalReplicationConn) Close() error {
 	return nil
 }
 
-func (c *LogicalReplicationConn) createPublication(ctx context.Context) error {
-	result := c.conn.Exec(ctx, "CREATE PUBLICATION pglogrepl_demo FOR ALL TABLES;")
-	if _, err := result.ReadAll(); err != nil {
-		slog.Error("failed to create publication", slog.String("err", err.Error()))
-		return err
-	}
+//func (c *LogicalReplicationConn) createPublication(ctx context.Context) error {
+//	result := c.conn.Exec(ctx, "CREATE PUBLICATION pglogrepl_demo FOR ALL TABLES;")
+//	if _, err := result.ReadAll(); err != nil {
+//		slog.Error("failed to create publication", slog.String("err", err.Error()))
+//		return err
+//	}
+//
+//	return nil
+//}
 
-	return nil
-}
-
-func (c *LogicalReplicationConn) dropPublication(ctx context.Context) error {
-	result := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS pglogrepl_demo;")
-	if _, err := result.ReadAll(); err != nil {
-		slog.Error("failed to create publication", slog.String("err", err.Error()))
-		return err
-	}
-
-	return nil
-}
+//func (c *LogicalReplicationConn) dropPublication(ctx context.Context) error {
+//	result := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS pglogrepl_demo;")
+//	if _, err := result.ReadAll(); err != nil {
+//		slog.Error("failed to create publication", slog.String("err", err.Error()))
+//		return err
+//	}
+//
+//	return nil
+//}
 
 func (c *LogicalReplicationConn) createReplicationSlot(ctx context.Context, slotName string, temporary bool) error {
 	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin.String(), pglogrepl.CreateReplicationSlotOptions{Temporary: temporary})

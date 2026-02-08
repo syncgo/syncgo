@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 )
@@ -74,7 +75,11 @@ func TestNew(t *testing.T) {
 				return
 			}
 			if conn != nil {
-				defer conn.Close(ctx)
+				defer func() {
+					if err := conn.Close(ctx); err != nil {
+						slog.Error("failed to close connection", slog.String("err", err.Error()))
+					}
+				}()
 			}
 		})
 	}
@@ -101,7 +106,11 @@ func TestNew_ReplicationMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			slog.Error("failed to close connection", slog.String("err", err.Error()))
+		}
+	}()
 
 	// Verify connection is established
 	if conn == nil {
