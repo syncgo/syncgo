@@ -105,12 +105,7 @@ func (c *LogicalReplicationConn) StartReplication(ctx context.Context) error {
 func (c *LogicalReplicationConn) Close() error {
 	c.wg.Wait()
 
-	if err := c.conn.Close(context.Background()); err != nil {
-		slog.Error("failed to close connection", slog.String("err", err.Error()))
-		return err
-	}
-
-	return nil
+	return c.conn.Close(context.Background())
 }
 
 //func (c *LogicalReplicationConn) createPublication(ctx context.Context) error {
