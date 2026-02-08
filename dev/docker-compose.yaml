@@ -48,7 +48,6 @@ services:
       timeout: 10s
       retries: 5
 
-
   opensearch:
     image: opensearchproject/opensearch:2.18.0
     restart: unless-stopped
@@ -77,18 +76,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-
-  opensearch-dashboard:
-    image: opensearchproject/opensearch-dashboards:2.18.0
-    restart: unless-stopped
-    ports:
-      - 5601:5601
-    environment:
-      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
-      DISABLE_SECURITY_DASHBOARDS_PLUGIN: true
-    depends_on:
-      opensearch:
-        condition: service_healthy
 
 volumes:
   postgres_data:

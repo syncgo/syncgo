@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/tls"
 
 	"github.com/valyala/fasthttp"
@@ -27,7 +28,7 @@ type ClientConfig struct {
 	ConnectionTimeout    time.Duration
 	AuthHeader           string
 	CustomHeaders        map[string]string
-	GzipCompressionLevel string
+	GzipCompressionLevel gzip.GzipCompressionLevel
 	TLS                  *ClientTLSConfig
 	KeepAlive            *ClientKeepAliveConfig
 }
@@ -74,7 +75,7 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 		endpoint:             uri,
 		authHeader:           cfg.AuthHeader,
 		customHeaders:        cfg.CustomHeaders,
-		gzipCompressionLevel: parseGzipCompressionLevel(cfg.GzipCompressionLevel),
+		gzipCompressionLevel: gzip.ParseGzipCompressionLevel(cfg.GzipCompressionLevel),
 	}, nil
 }
 
@@ -130,22 +131,5 @@ func (c *Client) prepareRequest(req *fasthttp.Request, endpoint *fasthttp.URI, m
 		}
 	} else {
 		req.SetBodyRaw(body)
-	}
-}
-
-func parseGzipCompressionLevel(level string) int {
-	switch level {
-	case "default":
-		return fasthttp.CompressDefaultCompression
-	case "no":
-		return fasthttp.CompressNoCompression
-	case "best-speed":
-		return fasthttp.CompressBestSpeed
-	case "best-compression":
-		return fasthttp.CompressBestCompression
-	case "huffman-only":
-		return fasthttp.CompressHuffmanOnly
-	default:
-		return -1
 	}
 }
