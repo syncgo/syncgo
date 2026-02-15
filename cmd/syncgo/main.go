@@ -4,8 +4,11 @@ import (
 	"context"
 	"flag"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -16,6 +19,8 @@ import (
 	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
 	"github.com/romanchechyotkin/syncgo/pkg/opensearch"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const cancelTimeout = 30 * time.Second
@@ -37,17 +42,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if cfg.IsElastic {
-		esClient, err := initEsClient(initCtx, cfg)
+	if cfg.Elasticsearch != nil {
+		esClient, err := initEsClient(initCtx, cfg.Elasticsearch)
 		if err != nil {
-			slog.Error("failed init es connection", slog.String("err", err.Error()))
+			slog.Error("failed init elasticsearch connection", slog.String("err", err.Error()))
 			os.Exit(1)
 		}
 		_ = esClient
-	} else if cfg.IsOpenSearch {
-		osClient, err := initOpenSearchClient(initCtx, cfg)
+	}
+	if cfg.OpenSearch != nil {
+		osClient, err := initOpenSearchClient(initCtx, cfg.OpenSearch)
 		if err != nil {
-			slog.Error("failed init os connection", slog.String("err", err.Error()))
+			slog.Error("failed init opensearch connection", slog.String("err", err.Error()))
 			os.Exit(1)
 		}
 		_ = osClient
@@ -58,6 +64,8 @@ func main() {
 		slog.Error("failed init postgresql connection", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
+
+	startMetricsServer(ctx, cfg)
 
 	if err = replicationConn.StartReplication(ctx); err != nil {
 		slog.Error("failed to start replication", slog.String("err", err.Error()))
@@ -72,22 +80,16 @@ func main() {
 	slog.Info("syncgo stopped successfully")
 }
 
-func initEsClient(ctx context.Context, cfg *config.Config) (*elasticsearch.Client, error) {
+func initEsClient(ctx context.Context, cfg *config.SearchConfig) (*elasticsearch.Client, error) {
 	esClient, err := elasticsearch.New(ctx, elasticsearch.Config{
-		Addresses:         cfg.Search.Addresses,
-		Username:          cfg.Search.Username,
-		Password:          cfg.Search.Password,
-		Index:             cfg.Search.Index,
-		ConnectionTimeout: cfg.Search.ConnectionTimeout,
-		GzipCompression:   cfg.Search.GzipCompression,
-		TLS: &http_client.ClientTLSConfig{
-			CACert:             cfg.Search.TLS.CACert,
-			InsecureSkipVerify: cfg.Search.TLS.InsecureSkipVerify,
-		},
-		KeepAlive: &http_client.ClientKeepAliveConfig{
-			MaxConnDuration:     cfg.Search.KeepAlive.MaxConnDuration,
-			MaxIdleConnDuration: cfg.Search.KeepAlive.MaxIdleConnDuration,
-		},
+		Addresses:         cfg.Addresses,
+		Username:          cfg.Username,
+		Password:          cfg.Password,
+		Index:             cfg.Index,
+		ConnectionTimeout: cfg.ConnectionTimeout,
+		GzipCompression:   cfg.GzipCompression,
+		TLS:               searchTLSToClient(cfg.TLS),
+		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
 	})
 	if err != nil {
 		slog.Error("failed to create elasticsearch client", slog.String("error", err.Error()))
@@ -97,28 +99,28 @@ func initEsClient(ctx context.Context, cfg *config.Config) (*elasticsearch.Clien
 	return esClient, nil
 }
 
-func initOpenSearchClient(ctx context.Context, cfg *config.Config) (*opensearch.Client, error) {
-	osClient, err := opensearch.New(ctx, opensearch.Config{
-		Addresses:         cfg.Search.Addresses,
-		Username:          cfg.Search.Username,
-		Password:          cfg.Search.Password,
-		Index:             cfg.Search.Index,
-		ConnectionTimeout: cfg.Search.ConnectionTimeout,
-		GzipCompression:   cfg.Search.GzipCompression,
-		TLS: &http_client.ClientTLSConfig{
-			CACert:             cfg.Search.TLS.CACert,
-			InsecureSkipVerify: cfg.Search.TLS.InsecureSkipVerify,
-		},
-		KeepAlive: &http_client.ClientKeepAliveConfig{
-			MaxConnDuration:     cfg.Search.KeepAlive.MaxConnDuration,
-			MaxIdleConnDuration: cfg.Search.KeepAlive.MaxIdleConnDuration,
-		},
-	})
+func initOpenSearchClient(ctx context.Context, cfg *config.OpenSearchConfig) (*opensearch.Client, error) {
+	osCfg := opensearch.Config{
+		Addresses:         cfg.Addresses,
+		Username:          cfg.Username,
+		Password:          cfg.Password,
+		Index:             cfg.Index,
+		ConnectionTimeout: cfg.ConnectionTimeout,
+		GzipCompression:   cfg.GzipCompression,
+		TLS:               searchTLSToClient(cfg.TLS),
+		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
+	}
+	if cfg.UseGRPC() {
+		osCfg.GRPC = &opensearch.GRPCConfig{
+			Host: cfg.GRPC.Host,
+			Port: cfg.GRPC.Port,
+		}
+	}
+	osClient, err := opensearch.New(ctx, osCfg)
 	if err != nil {
 		slog.Error("failed to create opensearch client", slog.String("error", err.Error()))
 		return nil, err
 	}
-
 	return osClient, nil
 }
 
@@ -136,6 +138,50 @@ func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config) (*re
 	}
 
 	return replication.New(ctx, conn)
+}
+
+func searchTLSToClient(t *config.SearchTLSConfig) *http_client.ClientTLSConfig {
+	if t == nil {
+		return nil
+	}
+	return &http_client.ClientTLSConfig{
+		CACert:             t.CACert,
+		InsecureSkipVerify: t.InsecureSkipVerify,
+	}
+}
+
+func searchKeepAliveToClient(k *config.SearchKeepAliveConfig) *http_client.ClientKeepAliveConfig {
+	if k == nil {
+		return nil
+	}
+	return &http_client.ClientKeepAliveConfig{
+		MaxConnDuration:     k.MaxConnDuration,
+		MaxIdleConnDuration: k.MaxIdleConnDuration,
+	}
+}
+
+func startMetricsServer(ctx context.Context, cfg *config.Config) {
+	if cfg.Metrics.Port <= 0 {
+		return
+	}
+	addr := net.JoinHostPort("0.0.0.0", strconv.Itoa(cfg.Metrics.Port))
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("metrics server failed", slog.String("err", err.Error()))
+		}
+	}()
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("metrics server shutdown failed", slog.String("err", err.Error()))
+		}
+	}()
+	slog.Info("metrics server listening", slog.String("addr", addr))
 }
 
 func parseConfigFlag() string {

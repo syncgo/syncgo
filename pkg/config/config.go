@@ -14,10 +14,29 @@ const defaultConfigPath = "config.yaml"
 
 // Config holds the complete application configuration
 type Config struct {
-	PostgreSQL   PostgreSQLConfig `yaml:"postgresql"`
-	Search       SearchConfig     `yaml:"search"`
-	IsElastic    bool             `yaml:"is_elastic"`
-	IsOpenSearch bool             `yaml:"is_opensearch"`
+	PostgreSQL    PostgreSQLConfig  `yaml:"postgresql"`
+	Elasticsearch *SearchConfig     `yaml:"elasticsearch,omitempty"`
+	OpenSearch    *OpenSearchConfig `yaml:"opensearch,omitempty"`
+	Metrics       MetricsConfig     `yaml:"metrics"`
+}
+
+// OpenSearchConfig holds OpenSearch connection configuration (HTTP and optional gRPC).
+// gRPC is only valid for OpenSearch; when set, the client uses gRPC for bulk operations instead of HTTP.
+type OpenSearchConfig struct {
+	SearchConfig `yaml:",inline"`
+	GRPC         *OpenSearchGRPCConfig `yaml:"grpc,omitempty"`
+}
+
+// OpenSearchGRPCConfig holds gRPC connection settings for OpenSearch.
+type OpenSearchGRPCConfig struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+}
+
+// MetricsConfig holds configuration for the Prometheus metrics HTTP server
+type MetricsConfig struct {
+	// Port is the TCP port to expose /metrics on (e.g. 9090). If 0, metrics server is disabled.
+	Port int `yaml:"port"`
 }
 
 // PostgreSQLConfig holds PostgreSQL connection configuration
@@ -29,8 +48,7 @@ type PostgreSQLConfig struct {
 	Database string `yaml:"database"`
 }
 
-// SearchConfig holds Elasticsearch/OpenSearch connection configuration
-// This is a unified config since ES and OpenSearch use the same parameters
+// SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).
 type SearchConfig struct {
 	Addresses         []string                  `yaml:"addresses"`
 	Username          string                    `yaml:"username"`
@@ -56,15 +74,20 @@ type SearchKeepAliveConfig struct {
 
 // Validate checks that the configuration is valid
 func (c *Config) Validate() error {
-	if c.IsElastic && c.IsOpenSearch {
-		return fmt.Errorf("both IS_ELASTIC and IS_OPENSEARCH cannot be true at the same time")
+	hasES := c.Elasticsearch != nil && len(c.Elasticsearch.Addresses) > 0
+	hasOS := c.OpenSearch != nil && len(c.OpenSearch.Addresses) > 0
+	if hasES && hasOS {
+		return fmt.Errorf("only one of elasticsearch or opensearch can be configured")
 	}
-
-	if !c.IsElastic && !c.IsOpenSearch {
-		return fmt.Errorf("either IS_ELASTIC or IS_OPENSEARCH must be true")
+	if !hasES && !hasOS {
+		return fmt.Errorf("either elasticsearch or opensearch must be configured with at least one address")
 	}
-
 	return nil
+}
+
+// UseGRPC returns true if OpenSearch is configured with gRPC (host and port set).
+func (c *OpenSearchConfig) UseGRPC() bool {
+	return c != nil && c.GRPC != nil && c.GRPC.Host != "" && c.GRPC.Port > 0
 }
 
 // LoadFromYAML loads configuration from a YAML file

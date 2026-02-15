@@ -44,3 +44,6 @@ dev_start:
 
 test:
 	go test ./... -v -short
+
+generate:
+	protoc --go_out=. --go_opt=module=github.com/romanchechyotkin/syncgo --go-grpc_out=. --go-grpc_opt=module=github.com/romanchechyotkin/syncgo --proto_path=proto proto/schemas/common.proto proto/services/*.proto

@@ -14,38 +14,44 @@ func TestConfig_Validate(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "valid config with IsElastic true",
+			name: "valid config with elasticsearch",
 			config: Config{
-				IsElastic:    true,
-				IsOpenSearch: false,
+				Elasticsearch: &SearchConfig{Addresses: []string{"http://localhost:9200"}},
 			},
 			expectError: false,
 		},
 		{
-			name: "valid config with IsOpenSearch true",
+			name: "valid config with opensearch",
 			config: Config{
-				IsElastic:    false,
-				IsOpenSearch: true,
+				OpenSearch: &OpenSearchConfig{SearchConfig: SearchConfig{Addresses: []string{"http://localhost:9300"}}},
 			},
 			expectError: false,
 		},
 		{
-			name: "invalid config - both true",
+			name: "invalid config - both configured",
 			config: Config{
-				IsElastic:    true,
-				IsOpenSearch: true,
+				Elasticsearch: &SearchConfig{Addresses: []string{"http://localhost:9200"}},
+				OpenSearch:    &OpenSearchConfig{SearchConfig: SearchConfig{Addresses: []string{"http://localhost:9300"}}},
 			},
 			expectError: true,
-			errorMsg:    "both IS_ELASTIC and IS_OPENSEARCH cannot be true at the same time",
+			errorMsg:    "only one of elasticsearch or opensearch can be configured",
 		},
 		{
-			name: "invalid config - both false",
+			name: "invalid config - neither configured",
 			config: Config{
-				IsElastic:    false,
-				IsOpenSearch: false,
+				Elasticsearch: nil,
+				OpenSearch:    nil,
 			},
 			expectError: true,
-			errorMsg:    "either IS_ELASTIC or IS_OPENSEARCH must be true",
+			errorMsg:    "either elasticsearch or opensearch must be configured with at least one address",
+		},
+		{
+			name: "invalid config - opensearch with no addresses",
+			config: Config{
+				OpenSearch: &OpenSearchConfig{SearchConfig: SearchConfig{Addresses: nil}},
+			},
+			expectError: true,
+			errorMsg:    "either elasticsearch or opensearch must be configured with at least one address",
 		},
 	}
 
@@ -78,7 +84,7 @@ func TestLoadFromYAML(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "valid config with IsElastic",
+			name: "valid config with elasticsearch",
 			yamlContent: `
 postgresql:
   user: testuser
@@ -86,18 +92,16 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
-search:
+elasticsearch:
   addresses:
     - http://localhost:9200
   username: admin
   password: secret
-is_elastic: true
-is_opensearch: false
 `,
 			expectError: false,
 		},
 		{
-			name: "valid config with IsOpenSearch",
+			name: "valid config with opensearch",
 			yamlContent: `
 postgresql:
   user: pguser
@@ -105,15 +109,13 @@ postgresql:
   host: db.example.com
   port: "5432"
   database: mydb
-search:
+opensearch:
   addresses:
     - http://localhost:9300
     - http://localhost:9301
   username: opensearch
   password: opensearch123
   api_key: test-api-key
-is_elastic: false
-is_opensearch: true
 `,
 			expectError: false,
 		},
@@ -130,7 +132,7 @@ invalid: yaml: [syntax
 			errorMsg:    "failed to parse YAML",
 		},
 		{
-			name: "invalid config - both flags true",
+			name: "invalid config - both elasticsearch and opensearch",
 			yamlContent: `
 postgresql:
   user: testuser
@@ -138,19 +140,18 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
-search:
+elasticsearch:
   addresses:
     - http://localhost:9200
-  username: admin
-  password: secret
-is_elastic: true
-is_opensearch: true
+opensearch:
+  addresses:
+    - http://localhost:9300
 `,
 			expectError: true,
 			errorMsg:    "config validation failed",
 		},
 		{
-			name: "invalid config - both flags false",
+			name: "invalid config - neither elasticsearch nor opensearch",
 			yamlContent: `
 postgresql:
   user: testuser
@@ -158,13 +159,6 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
-search:
-  addresses:
-    - http://localhost:9200
-  username: admin
-  password: secret
-is_elastic: false
-is_opensearch: false
 `,
 			expectError: true,
 			errorMsg:    "config validation failed",
@@ -184,13 +178,11 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
-search:
+elasticsearch:
   addresses:
     - http://localhost:9200
   username: admin
   password: secret
-is_elastic: true
-is_opensearch: false
 `,
 			path:        "",
 			expectError: false,

@@ -12,6 +12,13 @@ import (
 
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
+	"github.com/romanchechyotkin/syncgo/pkg/metrics"
+)
+
+const (
+	defaultConnTimeout = 30 * time.Second
+	pingTimeoutLimit   = 10 * time.Second
+	contentTypeNDJSON  = "application/x-ndjson"
 )
 
 type Config struct {
@@ -28,13 +35,9 @@ type Config struct {
 }
 
 type Client struct {
-	baseURL    string
-	index      string
-	authHeader string
+	pingClient *http_client.Client
+	bulkClient *http_client.Client
 	timeout    time.Duration
-	tlsConfig  *http_client.ClientTLSConfig
-	keepAlive  *http_client.ClientKeepAliveConfig
-	gzipLevel  gzip.GzipCompressionLevel
 }
 
 func New(ctx context.Context, cfg Config) (*Client, error) {
@@ -63,14 +66,12 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		}
 	}
 
-	// Set default timeout if not provided
 	timeout := cfg.ConnectionTimeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = defaultConnTimeout
 	}
 
-	// Create http client for ping
-	httpClient, err := http_client.NewClient(&http_client.ClientConfig{
+	pingClient, err := http_client.NewClient(&http_client.ClientConfig{
 		Endpoint:             baseURL,
 		ConnectionTimeout:    timeout,
 		AuthHeader:           authHeader,
@@ -82,90 +83,88 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("can't create http client: %w", err)
 	}
 
-	// Ping to verify connection
-	pingTimeout := 10 * time.Second
+	pingTimeout := pingTimeoutLimit
 	if timeout < pingTimeout {
 		pingTimeout = timeout
 	}
 
-	statusCode, err := httpClient.DoTimeout(
-		"GET",
-		"",
-		nil,
-		pingTimeout,
-		nil,
-	)
+	statusCode, err := pingClient.DoTimeout(http.MethodGet, "", nil, pingTimeout, nil)
 	if err != nil {
 		return nil, fmt.Errorf("elasticsearch ping failed: %w", err)
 	}
-
 	if statusCode < http.StatusOK || statusCode >= http.StatusBadRequest {
 		return nil, fmt.Errorf("elasticsearch ping failed with status: %d", statusCode)
 	}
 
 	slog.Debug("elasticsearch connection established successfully")
 
+	bulkEndpoint := baseURL + "/_bulk"
+	if cfg.Index != "" {
+		bulkEndpoint = baseURL + "/" + cfg.Index + "/_bulk"
+	}
+	bulkClient, err := http_client.NewClient(&http_client.ClientConfig{
+		Endpoint:             bulkEndpoint,
+		ConnectionTimeout:    timeout,
+		AuthHeader:           authHeader,
+		GzipCompressionLevel: cfg.GzipCompression,
+		TLS:                  tlsConfig,
+		KeepAlive:            cfg.KeepAlive,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("can't create bulk http client: %w", err)
+	}
+
 	return &Client{
-		baseURL:    baseURL,
-		index:      cfg.Index,
-		authHeader: authHeader,
+		pingClient: pingClient,
+		bulkClient: bulkClient,
 		timeout:    timeout,
-		tlsConfig:  tlsConfig,
-		keepAlive:  cfg.KeepAlive,
-		gzipLevel:  cfg.GzipCompression,
 	}, nil
 }
 
+const backendName = "elasticsearch"
+
 func (c *Client) Bulk(ctx context.Context, data []byte) error {
-	// Build bulk endpoint
-	endpoint := c.baseURL + "/_bulk"
-	if c.index != "" {
-		endpoint = c.baseURL + "/" + c.index + "/_bulk"
-	}
-
-	// Create http client for bulk request
-	httpClient, err := http_client.NewClient(&http_client.ClientConfig{
-		Endpoint:             endpoint,
-		ConnectionTimeout:    c.timeout,
-		AuthHeader:           c.authHeader,
-		GzipCompressionLevel: c.gzipLevel,
-		TLS:                  c.tlsConfig,
-		KeepAlive:            c.keepAlive,
-	})
-	if err != nil {
-		return fmt.Errorf("can't create bulk http client: %w", err)
-	}
-
-	// Determine timeout from context
-	timeout := c.timeout
-	if ctx != nil {
-		if deadline, ok := ctx.Deadline(); ok {
-			timeout = time.Until(deadline)
-			if timeout <= 0 {
-				timeout = c.timeout
-			}
-		}
-	}
-
-	// Send bulk request
-	statusCode, err := httpClient.DoTimeout(
-		"POST",
-		"application/x-ndjson",
+	timeout := timeoutFromContext(ctx, c.timeout)
+	var indexingErrors int
+	statusCode, err := c.bulkClient.DoTimeout(
+		http.MethodPost,
+		contentTypeNDJSON,
 		data,
 		timeout,
-		func(responseBody []byte) error {
-			return c.reportESErrors(responseBody)
+		func(body []byte) error {
+			indexingErrors = c.reportESErrors(body)
+			return nil
 		},
 	)
+	status := "success"
+	if err != nil || indexingErrors > 0 {
+		status = "fail"
+	}
+	metrics.IncSearchRequests(backendName, status)
+	if indexingErrors > 0 {
+		metrics.AddSearchErrors(backendName, float64(indexingErrors))
+	}
 	if err != nil {
-		// Check if it's a status code error
 		if statusCode >= http.StatusBadRequest {
 			return fmt.Errorf("elasticsearch bulk request failed with status %d: %w", statusCode, err)
 		}
 		return fmt.Errorf("can't send bulk request: %w", err)
 	}
-
 	return nil
+}
+
+func timeoutFromContext(ctx context.Context, defaultTimeout time.Duration) time.Duration {
+	if ctx == nil {
+		return defaultTimeout
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return defaultTimeout
+	}
+	if remaining := time.Until(deadline); remaining > 0 {
+		return remaining
+	}
+	return defaultTimeout
 }
 
 // reportESErrors parses the Elasticsearch bulk response and logs any indexing errors.
@@ -210,25 +209,26 @@ func (c *Client) Bulk(ctx context.Context, data []byte) error {
 //	   }
 //	 ]
 //	}
-func (c *Client) reportESErrors(data []byte) error {
+// reportESErrors parses the bulk response, logs indexing errors, and returns their count.
+func (c *Client) reportESErrors(data []byte) int {
 	var response struct {
 		Errors bool                         `json:"errors"`
 		Items  []map[string]json.RawMessage `json:"items"`
 	}
 
 	if err := json.Unmarshal(data, &response); err != nil {
-		return fmt.Errorf("can't decode response: %w", err)
+		return 0
 	}
 
 	if !response.Errors {
-		return nil
+		return 0
 	}
 
 	if len(response.Items) == 0 {
 		slog.Error("unknown elasticsearch error, 'items' field in the response is empty",
 			slog.String("response", string(data)),
 		)
-		return nil
+		return 0
 	}
 
 	indexingErrors := 0
@@ -287,5 +287,5 @@ func (c *Client) reportESErrors(data []byte) error {
 		)
 	}
 
-	return nil
+	return indexingErrors
 }

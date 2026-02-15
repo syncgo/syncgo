@@ -4,10 +4,21 @@ postgresql:
   host: localhost
   port: 5432
   database: pglogrepl
-search:
+# Use either elasticsearch or opensearch (exactly one required)
+elasticsearch:
   addresses:
     - http://localhost:9200
   username: admin
-  password: Es123456 # or Op3nS3arch! for OpenSearch
-is_elastic: true
-is_opensearch: false
+  password: Es123456
+  # index: myindex
+# opensearch:
+#   addresses:
+#     - http://localhost:9300
+#   username: admin
+#   password: Op3nS3arch!
+#   # optional: use gRPC for bulk instead of HTTP
+#   grpc:
+#     host: localhost
+#     port: 50051
+metrics:
+  port: 9090  # set to 0 to disable

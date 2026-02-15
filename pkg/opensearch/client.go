@@ -6,13 +6,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/romanchechyotkin/syncgo/internal/pb/opensearchpb"
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
+	"github.com/romanchechyotkin/syncgo/pkg/metrics"
+	
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
+
+const (
+	defaultConnTimeout = 30 * time.Second
+	pingTimeoutLimit   = 10 * time.Second
+	contentTypeNDJSON  = "application/x-ndjson"
+)
+
+// GRPCConfig holds gRPC connection settings for OpenSearch (optional).
+// When set, Bulk() uses the gRPC DocumentService instead of HTTP.
+type GRPCConfig struct {
+	Host string
+	Port int
+}
 
 type Config struct {
 	Addresses         []string
@@ -25,16 +45,17 @@ type Config struct {
 	GzipCompression   gzip.GzipCompressionLevel
 	TLS               *http_client.ClientTLSConfig
 	KeepAlive         *http_client.ClientKeepAliveConfig
+	// GRPC is optional. When set, the client uses gRPC for bulk operations instead of HTTP.
+	GRPC *GRPCConfig
 }
 
 type Client struct {
-	baseURL    string
+	pingClient *http_client.Client
+	httpClient *http_client.Client
+	docClient  opensearchpb.DocumentServiceClient
+	grpcConn   *grpc.ClientConn
 	index      string
-	authHeader string
 	timeout    time.Duration
-	tlsConfig  *http_client.ClientTLSConfig
-	keepAlive  *http_client.ClientKeepAliveConfig
-	gzipLevel  gzip.GzipCompressionLevel
 }
 
 func New(ctx context.Context, cfg Config) (*Client, error) {
@@ -63,14 +84,12 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		}
 	}
 
-	// Set default timeout if not provided
 	timeout := cfg.ConnectionTimeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = defaultConnTimeout
 	}
 
-	// Create http client for ping
-	httpClient, err := http_client.NewClient(&http_client.ClientConfig{
+	pingClient, err := http_client.NewClient(&http_client.ClientConfig{
 		Endpoint:             baseURL,
 		ConnectionTimeout:    timeout,
 		AuthHeader:           authHeader,
@@ -82,151 +101,209 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("can't create http client: %w", err)
 	}
 
-	// Ping to verify connection
-	pingTimeout := 10 * time.Second
+	pingTimeout := pingTimeoutLimit
 	if timeout < pingTimeout {
 		pingTimeout = timeout
 	}
 
-	statusCode, err := httpClient.DoTimeout(
-		"GET",
-		"",
-		nil,
-		pingTimeout,
-		nil,
-	)
+	statusCode, err := pingClient.DoTimeout(http.MethodGet, "", nil, pingTimeout, nil)
 	if err != nil {
 		return nil, fmt.Errorf("opensearch ping failed: %w", err)
 	}
-
 	if statusCode < http.StatusOK || statusCode >= http.StatusBadRequest {
 		return nil, fmt.Errorf("opensearch ping failed with status: %d", statusCode)
 	}
 
 	slog.Debug("opensearch connection established successfully")
 
-	return &Client{
-		baseURL:    baseURL,
-		index:      cfg.Index,
-		authHeader: authHeader,
-		timeout:    timeout,
-		tlsConfig:  tlsConfig,
-		keepAlive:  cfg.KeepAlive,
-		gzipLevel:  cfg.GzipCompression,
-	}, nil
+	client := &Client{pingClient: pingClient, index: cfg.Index, timeout: timeout}
+
+	if cfg.GRPC != nil && cfg.GRPC.Host != "" && cfg.GRPC.Port > 0 {
+		addr := net.JoinHostPort(cfg.GRPC.Host, strconv.Itoa(cfg.GRPC.Port))
+		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, fmt.Errorf("can't connect to opensearch gRPC at %s: %w", addr, err)
+		}
+		client.grpcConn = conn
+		client.docClient = opensearchpb.NewDocumentServiceClient(conn)
+		slog.Debug("opensearch gRPC client connected", slog.String("addr", addr))
+		return client, nil
+	}
+
+	bulkEndpoint := baseURL + "/_bulk"
+	if cfg.Index != "" {
+		bulkEndpoint = baseURL + "/" + cfg.Index + "/_bulk"
+	}
+	bulkClient, err := http_client.NewClient(&http_client.ClientConfig{
+		Endpoint:             bulkEndpoint,
+		ConnectionTimeout:    timeout,
+		AuthHeader:           authHeader,
+		GzipCompressionLevel: cfg.GzipCompression,
+		TLS:                  tlsConfig,
+		KeepAlive:            cfg.KeepAlive,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("can't create bulk http client: %w", err)
+	}
+	client.httpClient = bulkClient
+	return client, nil
+}
+
+const backendName = "opensearch"
+
+// Close closes the gRPC connection if the client was created with gRPC. No-op for HTTP-only client.
+func (c *Client) Close() error {
+	if c.grpcConn != nil {
+		return c.grpcConn.Close()
+	}
+	return nil
 }
 
 func (c *Client) Bulk(ctx context.Context, data []byte) error {
-	// Build bulk endpoint
-	endpoint := c.baseURL + "/_bulk"
-	if c.index != "" {
-		endpoint = c.baseURL + "/" + c.index + "/_bulk"
+	if c.docClient != nil {
+		return c.bulkGRPC(ctx, data)
 	}
+	return c.bulkHTTP(ctx, data)
+}
 
-	// Create http client for bulk request
-	httpClient, err := http_client.NewClient(&http_client.ClientConfig{
-		Endpoint:             endpoint,
-		ConnectionTimeout:    c.timeout,
-		AuthHeader:           c.authHeader,
-		GzipCompressionLevel: c.gzipLevel,
-		TLS:                  c.tlsConfig,
-		KeepAlive:            c.keepAlive,
-	})
+func (c *Client) bulkGRPC(ctx context.Context, data []byte) error {
+	req, err := ndjsonToBulkRequest(data, c.index)
 	if err != nil {
-		return fmt.Errorf("can't create bulk http client: %w", err)
+		metrics.IncSearchRequests(backendName, "fail")
+		return fmt.Errorf("opensearch gRPC bulk: invalid NDJSON: %w", err)
 	}
-
-	// Determine timeout from context
-	timeout := c.timeout
-	if ctx != nil {
-		if deadline, ok := ctx.Deadline(); ok {
-			timeout = time.Until(deadline)
-			if timeout <= 0 {
-				timeout = c.timeout
-			}
-		}
+	resp, err := c.docClient.Bulk(ctx, req)
+	if err != nil {
+		metrics.IncSearchRequests(backendName, "fail")
+		return fmt.Errorf("opensearch gRPC bulk: %w", err)
 	}
+	indexingErrors := reportGRPCBulkErrors(resp)
+	status := "success"
+	if indexingErrors > 0 {
+		status = "fail"
+		metrics.AddSearchErrors(backendName, float64(indexingErrors))
+	}
+	metrics.IncSearchRequests(backendName, status)
+	return nil
+}
 
-	// Send bulk request
-	statusCode, err := httpClient.DoTimeout(
-		"POST",
-		"application/x-ndjson",
+func (c *Client) bulkHTTP(ctx context.Context, data []byte) error {
+	timeout := timeoutFromContext(ctx, c.timeout)
+	var indexingErrors int
+	statusCode, err := c.httpClient.DoTimeout(
+		http.MethodPost,
+		contentTypeNDJSON,
 		data,
 		timeout,
-		c.reportOSErrors,
+		func(body []byte) error {
+			indexingErrors = c.reportOSErrors(body)
+			return nil
+		},
 	)
+	status := "success"
+	if err != nil || indexingErrors > 0 {
+		status = "fail"
+	}
+	metrics.IncSearchRequests(backendName, status)
+	if indexingErrors > 0 {
+		metrics.AddSearchErrors(backendName, float64(indexingErrors))
+	}
 	if err != nil {
-		// Check if it's a status code error
 		if statusCode >= http.StatusBadRequest {
 			return fmt.Errorf("opensearch bulk request failed with status %d: %w", statusCode, err)
 		}
 		return fmt.Errorf("can't send bulk request: %w", err)
 	}
-
 	return nil
 }
 
+func timeoutFromContext(ctx context.Context, defaultTimeout time.Duration) time.Duration {
+	if ctx == nil {
+		return defaultTimeout
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return defaultTimeout
+	}
+	if remaining := time.Until(deadline); remaining > 0 {
+		return remaining
+	}
+	return defaultTimeout
+}
+
 // reportOSErrors parses the OpenSearch bulk response and logs any indexing errors.
-// Example of an OpenSearch response that returned an indexing error:
-//
-//	{
-//	 "took": 5,
-//	 "errors": true,
-//	 "items": [
-//	   {
-//	     "index": {
-//	       "_index": "logs",
-//	       "_type": "_doc",
-//	       "_id": "x8YzWowBaqwP8avfpXh8",
-//	       "status": 400,
-//	       "error": {
-//	         "type": "mapper_parsing_exception",
-//	         "reason": "failed to parse field [hello] of type [text] in document with id 'x8YzWowBaqwP8avfpXh8'. Preview of field's value: '{test=test}'",
-//	         "caused_by": {
-//	           "type": "illegal_state_exception",
-//	           "reason": "Can't get text on a START_OBJECT at 1:11"
-//	         }
-//	       }
-//	     }
-//	   },
-//	   {
-//	     "index": {
-//	       "_index": "logs",
-//	       "_type": "_doc",
-//	       "_id": "yMYzWowBaqwP8avfpXh8",
-//	       "_version": 1,
-//	       "result": "created",
-//	       "_shards": {
-//	         "total": 2,
-//	         "successful": 1,
-//	         "failed": 0
-//	       },
-//	       "_seq_no": 4,
-//	       "_primary_term": 1,
-//	       "status": 201
-//	     }
-//	   }
-//	 ]
-//	}
-func (c *Client) reportOSErrors(data []byte) error {
+// It returns the number of indexing errors found.
+// reportGRPCBulkErrors logs errors from gRPC BulkResponse and returns the count of failed items.
+func reportGRPCBulkErrors(resp *opensearchpb.BulkResponse) int {
+	if resp == nil || !resp.Errors {
+		return 0
+	}
+	count := 0
+	for _, item := range resp.Items {
+		if item == nil {
+			continue
+		}
+		var ri *opensearchpb.ResponseItem
+		switch v := item.Item.(type) {
+		case *opensearchpb.Item_Index:
+			ri = v.Index
+		case *opensearchpb.Item_Create:
+			ri = v.Create
+		case *opensearchpb.Item_Update:
+			ri = v.Update
+		case *opensearchpb.Item_Delete:
+			ri = v.Delete
+		}
+		if ri == nil {
+			continue
+		}
+		if ri.Error != nil || ri.Status >= int32(http.StatusBadRequest) {
+			count++
+			if ri.Error != nil {
+				reason := ""
+				if ri.Error.Reason != nil {
+					reason = *ri.Error.Reason
+				}
+				slog.Error("opensearch gRPC indexing error",
+					slog.String("type", ri.Error.Type),
+					slog.String("reason", reason),
+					slog.Int("status", int(ri.Status)),
+				)
+			} else {
+				slog.Error("opensearch gRPC bulk item error",
+					slog.Int("status", int(ri.Status)),
+					slog.String("index", ri.XIndex),
+				)
+			}
+		}
+	}
+	if count > 0 {
+		slog.Error("some events from gRPC bulk aren't written, check previous logs",
+			slog.Int("error_count", count),
+		)
+	}
+	return count
+}
+
+func (c *Client) reportOSErrors(data []byte) int {
 	var response struct {
 		Errors bool                         `json:"errors"`
 		Items  []map[string]json.RawMessage `json:"items"`
 	}
 
 	if err := json.Unmarshal(data, &response); err != nil {
-		return fmt.Errorf("can't decode response: %w", err)
+		return 0
 	}
 
 	if !response.Errors {
-		return nil
+		return 0
 	}
 
 	if len(response.Items) == 0 {
 		slog.Error("unknown opensearch error, 'items' field in the response is empty",
 			slog.String("response", string(data)),
 		)
-		return nil
+		return 0
 	}
 
 	indexingErrors := 0
@@ -285,5 +362,5 @@ func (c *Client) reportOSErrors(data []byte) error {
 		)
 	}
 
-	return nil
+	return indexingErrors
 }
