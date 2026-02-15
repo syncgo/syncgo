@@ -12,6 +12,7 @@ import (
 	"github.com/romanchechyotkin/syncgo/internal/replication"
 	"github.com/romanchechyotkin/syncgo/pkg/config"
 	"github.com/romanchechyotkin/syncgo/pkg/elasticsearch"
+	"github.com/romanchechyotkin/syncgo/pkg/http_client"
 	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
 	"github.com/romanchechyotkin/syncgo/pkg/opensearch"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
@@ -73,10 +74,20 @@ func main() {
 
 func initEsClient(ctx context.Context, cfg *config.Config) (*elasticsearch.Client, error) {
 	esClient, err := elasticsearch.New(ctx, elasticsearch.Config{
-		Addresses: cfg.Search.Addresses,
-		Username:  cfg.Search.Username,
-		Password:  cfg.Search.Password,
-		Index:     cfg.Search.Index,
+		Addresses:         cfg.Search.Addresses,
+		Username:          cfg.Search.Username,
+		Password:          cfg.Search.Password,
+		Index:             cfg.Search.Index,
+		ConnectionTimeout: cfg.Search.ConnectionTimeout,
+		GzipCompression:   cfg.Search.GzipCompression,
+		TLS: &http_client.ClientTLSConfig{
+			CACert:             cfg.Search.TLS.CACert,
+			InsecureSkipVerify: cfg.Search.TLS.InsecureSkipVerify,
+		},
+		KeepAlive: &http_client.ClientKeepAliveConfig{
+			MaxConnDuration:     cfg.Search.KeepAlive.MaxConnDuration,
+			MaxIdleConnDuration: cfg.Search.KeepAlive.MaxIdleConnDuration,
+		},
 	})
 	if err != nil {
 		slog.Error("failed to create elasticsearch client", slog.String("error", err.Error()))
@@ -88,10 +99,20 @@ func initEsClient(ctx context.Context, cfg *config.Config) (*elasticsearch.Clien
 
 func initOpenSearchClient(ctx context.Context, cfg *config.Config) (*opensearch.Client, error) {
 	osClient, err := opensearch.New(ctx, opensearch.Config{
-		Addresses: cfg.Search.Addresses,
-		Username:  cfg.Search.Username,
-		Password:  cfg.Search.Password,
-		Index:     cfg.Search.Index,
+		Addresses:         cfg.Search.Addresses,
+		Username:          cfg.Search.Username,
+		Password:          cfg.Search.Password,
+		Index:             cfg.Search.Index,
+		ConnectionTimeout: cfg.Search.ConnectionTimeout,
+		GzipCompression:   cfg.Search.GzipCompression,
+		TLS: &http_client.ClientTLSConfig{
+			CACert:             cfg.Search.TLS.CACert,
+			InsecureSkipVerify: cfg.Search.TLS.InsecureSkipVerify,
+		},
+		KeepAlive: &http_client.ClientKeepAliveConfig{
+			MaxConnDuration:     cfg.Search.KeepAlive.MaxConnDuration,
+			MaxIdleConnDuration: cfg.Search.KeepAlive.MaxIdleConnDuration,
+		},
 	})
 	if err != nil {
 		slog.Error("failed to create opensearch client", slog.String("error", err.Error()))

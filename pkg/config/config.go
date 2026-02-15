@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,12 +32,26 @@ type PostgreSQLConfig struct {
 // SearchConfig holds Elasticsearch/OpenSearch connection configuration
 // This is a unified config since ES and OpenSearch use the same parameters
 type SearchConfig struct {
-	Addresses []string `yaml:"addresses"`
-	Username  string   `yaml:"username"`
-	Password  string   `yaml:"password"`
-	APIKey    string   `yaml:"api_key"`
-	CloudID   string   `yaml:"cloud_id"`
-	Index     string   `yaml:"index"`
+	Addresses         []string                  `yaml:"addresses"`
+	Username          string                    `yaml:"username"`
+	Password          string                    `yaml:"password"`
+	APIKey            string                    `yaml:"api_key"`
+	CloudID           string                    `yaml:"cloud_id"`
+	Index             string                    `yaml:"index"`
+	ConnectionTimeout time.Duration             `yaml:"connection_timeout"`
+	GzipCompression   gzip.GzipCompressionLevel `yaml:"gzip_compression"`
+	TLS               *SearchTLSConfig          `yaml:"tls"`
+	KeepAlive         *SearchKeepAliveConfig    `yaml:"keep_alive"`
+}
+
+type SearchTLSConfig struct {
+	CACert             string `yaml:"ca_cert"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+}
+
+type SearchKeepAliveConfig struct {
+	MaxConnDuration     time.Duration `yaml:"max_conn_duration"`
+	MaxIdleConnDuration time.Duration `yaml:"max_idle_conn_duration"`
 }
 
 // Validate checks that the configuration is valid
