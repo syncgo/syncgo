@@ -17,6 +17,7 @@ import (
 	"github.com/romanchechyotkin/syncgo/pkg/elasticsearch"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
 	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
+	"github.com/romanchechyotkin/syncgo/pkg/metrics"
 	"github.com/romanchechyotkin/syncgo/pkg/opensearch"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
 
@@ -42,8 +43,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	monitoring := metrics.New()
+
 	if cfg.Elasticsearch != nil {
-		esClient, err := initEsClient(initCtx, cfg.Elasticsearch)
+		esClient, err := initEsClient(initCtx, cfg.Elasticsearch, monitoring)
 		if err != nil {
 			slog.Error("failed init elasticsearch connection", slog.String("err", err.Error()))
 			os.Exit(1)
@@ -51,7 +54,7 @@ func main() {
 		_ = esClient
 	}
 	if cfg.OpenSearch != nil {
-		osClient, err := initOpenSearchClient(initCtx, cfg.OpenSearch)
+		osClient, err := initOpenSearchClient(initCtx, cfg.OpenSearch, monitoring)
 		if err != nil {
 			slog.Error("failed init opensearch connection", slog.String("err", err.Error()))
 			os.Exit(1)
@@ -80,7 +83,7 @@ func main() {
 	slog.Info("syncgo stopped successfully")
 }
 
-func initEsClient(ctx context.Context, cfg *config.SearchConfig) (*elasticsearch.Client, error) {
+func initEsClient(ctx context.Context, cfg *config.SearchConfig, monitoring *metrics.SearchMetrics) (*elasticsearch.Client, error) {
 	esClient, err := elasticsearch.New(ctx, elasticsearch.Config{
 		Addresses:         cfg.Addresses,
 		Username:          cfg.Username,
@@ -90,7 +93,7 @@ func initEsClient(ctx context.Context, cfg *config.SearchConfig) (*elasticsearch
 		GzipCompression:   cfg.GzipCompression,
 		TLS:               searchTLSToClient(cfg.TLS),
 		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
-	})
+	}, monitoring)
 	if err != nil {
 		slog.Error("failed to create elasticsearch client", slog.String("error", err.Error()))
 		return nil, err
@@ -99,7 +102,7 @@ func initEsClient(ctx context.Context, cfg *config.SearchConfig) (*elasticsearch
 	return esClient, nil
 }
 
-func initOpenSearchClient(ctx context.Context, cfg *config.OpenSearchConfig) (*opensearch.Client, error) {
+func initOpenSearchClient(ctx context.Context, cfg *config.OpenSearchConfig, monitoring *metrics.SearchMetrics) (*opensearch.Client, error) {
 	osCfg := opensearch.Config{
 		Addresses:         cfg.Addresses,
 		Username:          cfg.Username,
@@ -116,7 +119,7 @@ func initOpenSearchClient(ctx context.Context, cfg *config.OpenSearchConfig) (*o
 			Port: cfg.GRPC.Port,
 		}
 	}
-	osClient, err := opensearch.New(ctx, osCfg)
+	osClient, err := opensearch.New(ctx, osCfg, monitoring)
 	if err != nil {
 		slog.Error("failed to create opensearch client", slog.String("error", err.Error()))
 		return nil, err

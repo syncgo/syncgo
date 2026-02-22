@@ -12,7 +12,6 @@ import (
 
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
-	"github.com/romanchechyotkin/syncgo/pkg/metrics"
 )
 
 const (
@@ -34,13 +33,20 @@ type Config struct {
 	KeepAlive         *http_client.ClientKeepAliveConfig
 }
 
+type Monitoring interface {
+	IncSearchRequests(backend, status string)
+	AddSearchErrors(backend string, errorsCount float64)
+}
+
 type Client struct {
 	pingClient *http_client.Client
 	bulkClient *http_client.Client
 	timeout    time.Duration
+
+	monitoring Monitoring
 }
 
-func New(ctx context.Context, cfg Config) (*Client, error) {
+func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error) {
 	if len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one address must be provided")
 	}
@@ -140,9 +146,9 @@ func (c *Client) Bulk(ctx context.Context, data []byte) error {
 	if err != nil || indexingErrors > 0 {
 		status = "fail"
 	}
-	metrics.IncSearchRequests(backendName, status)
+	c.monitoring.IncSearchRequests(backendName, status)
 	if indexingErrors > 0 {
-		metrics.AddSearchErrors(backendName, float64(indexingErrors))
+		c.monitoring.AddSearchErrors(backendName, float64(indexingErrors))
 	}
 	if err != nil {
 		if statusCode >= http.StatusBadRequest {
@@ -209,6 +215,7 @@ func timeoutFromContext(ctx context.Context, defaultTimeout time.Duration) time.
 //	   }
 //	 ]
 //	}
+//
 // reportESErrors parses the bulk response, logs indexing errors, and returns their count.
 func (c *Client) reportESErrors(data []byte) int {
 	var response struct {

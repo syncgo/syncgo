@@ -12,6 +12,7 @@ const (
 )
 
 type Data struct {
+	ID     string
 	Action Action
 	Body   []byte
 }
@@ -31,10 +32,10 @@ type Data struct {
 // { "update" : {"_id" : "1", "_index" : "test"} }
 // { "doc" : {"field2" : "value2"} }
 
-func (d Data) Bytes(id string) []byte {
+func (d Data) Bytes() []byte {
 	var buf = bytes.NewBuffer(nil)
 
-	writeMetadataBody(buf, d.Action, id)
+	writeMetadataBody(buf, d.Action, d.ID)
 
 	switch d.Action {
 	case Index, Create:

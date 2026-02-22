@@ -9,7 +9,6 @@ func Test_Data_Bytes(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     Data
-		id       string
 		expected string
 	}{
 		{
@@ -17,8 +16,8 @@ func Test_Data_Bytes(t *testing.T) {
 			data: Data{
 				Action: Index,
 				Body:   []byte(`{"field1":"value1"}`),
+				ID:     "1",
 			},
-			id:       "1",
 			expected: "{\"index\":{\"_id\":\"1\"}}\n{\"field1\":\"value1\"}\n",
 		},
 		{
@@ -26,8 +25,8 @@ func Test_Data_Bytes(t *testing.T) {
 			data: Data{
 				Action: Create,
 				Body:   []byte(`{"field1":"value3"}`),
+				ID:     "3",
 			},
-			id:       "3",
 			expected: "{\"create\":{\"_id\":\"3\"}}\n{\"field1\":\"value3\"}\n",
 		},
 		{
@@ -35,8 +34,8 @@ func Test_Data_Bytes(t *testing.T) {
 			data: Data{
 				Action: Delete,
 				Body:   nil,
+				ID:     "2",
 			},
-			id:       "2",
 			expected: "{\"delete\":{\"_id\":\"2\"}}\n\n",
 		},
 		{
@@ -44,8 +43,8 @@ func Test_Data_Bytes(t *testing.T) {
 			data: Data{
 				Action: Update,
 				Body:   []byte(`{"field2":"value2"}`),
+				ID:     "1",
 			},
-			id:       "1",
 			expected: "{\"update\":{\"_id\":\"1\"}}\n{\"doc\":{\"field2\":\"value2\"}}\n",
 		},
 		{
@@ -53,8 +52,8 @@ func Test_Data_Bytes(t *testing.T) {
 			data: Data{
 				Action: Index,
 				Body:   []byte{},
+				ID:     "123",
 			},
-			id:       "123",
 			expected: "{\"index\":{\"_id\":\"123\"}}\n\n",
 		},
 		{
@@ -62,15 +61,15 @@ func Test_Data_Bytes(t *testing.T) {
 			data: Data{
 				Action: Update,
 				Body:   []byte(`{"name":"John","age":30,"active":true}`),
+				ID:     "456",
 			},
-			id:       "456",
 			expected: "{\"update\":{\"_id\":\"456\"}}\n{\"doc\":{\"name\":\"John\",\"age\":30,\"active\":true}}\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.data.Bytes(tt.id)
+			result := tt.data.Bytes()
 
 			if string(result) != tt.expected {
 				t.Errorf("Data.Bytes() = %q, want %q", string(result), tt.expected)

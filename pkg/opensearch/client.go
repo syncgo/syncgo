@@ -15,8 +15,7 @@ import (
 	"github.com/romanchechyotkin/syncgo/internal/pb/opensearchpb"
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
-	"github.com/romanchechyotkin/syncgo/pkg/metrics"
-	
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -49,16 +48,25 @@ type Config struct {
 	GRPC *GRPCConfig
 }
 
+type Monitoring interface {
+	IncSearchRequests(backend, status string)
+	AddSearchErrors(backend string, errorsCount float64)
+}
+
 type Client struct {
 	pingClient *http_client.Client
 	httpClient *http_client.Client
-	docClient  opensearchpb.DocumentServiceClient
-	grpcConn   *grpc.ClientConn
-	index      string
-	timeout    time.Duration
+
+	docClient opensearchpb.DocumentServiceClient
+	grpcConn  *grpc.ClientConn
+
+	index   string
+	timeout time.Duration
+
+	monitoring Monitoring
 }
 
-func New(ctx context.Context, cfg Config) (*Client, error) {
+func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error) {
 	if len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one address must be provided")
 	}
@@ -169,21 +177,21 @@ func (c *Client) Bulk(ctx context.Context, data []byte) error {
 func (c *Client) bulkGRPC(ctx context.Context, data []byte) error {
 	req, err := ndjsonToBulkRequest(data, c.index)
 	if err != nil {
-		metrics.IncSearchRequests(backendName, "fail")
+		c.monitoring.IncSearchRequests(backendName, "fail")
 		return fmt.Errorf("opensearch gRPC bulk: invalid NDJSON: %w", err)
 	}
 	resp, err := c.docClient.Bulk(ctx, req)
 	if err != nil {
-		metrics.IncSearchRequests(backendName, "fail")
+		c.monitoring.IncSearchRequests(backendName, "fail")
 		return fmt.Errorf("opensearch gRPC bulk: %w", err)
 	}
 	indexingErrors := reportGRPCBulkErrors(resp)
 	status := "success"
 	if indexingErrors > 0 {
 		status = "fail"
-		metrics.AddSearchErrors(backendName, float64(indexingErrors))
+		c.monitoring.AddSearchErrors(backendName, float64(indexingErrors))
 	}
-	metrics.IncSearchRequests(backendName, status)
+	c.monitoring.IncSearchRequests(backendName, status)
 	return nil
 }
 
@@ -204,9 +212,9 @@ func (c *Client) bulkHTTP(ctx context.Context, data []byte) error {
 	if err != nil || indexingErrors > 0 {
 		status = "fail"
 	}
-	metrics.IncSearchRequests(backendName, status)
+	c.monitoring.IncSearchRequests(backendName, status)
 	if indexingErrors > 0 {
-		metrics.AddSearchErrors(backendName, float64(indexingErrors))
+		c.monitoring.AddSearchErrors(backendName, float64(indexingErrors))
 	}
 	if err != nil {
 		if statusCode >= http.StatusBadRequest {

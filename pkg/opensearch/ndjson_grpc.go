@@ -103,8 +103,8 @@ func parseBulkAction(action map[string]json.RawMessage, doc []byte, defaultIndex
 
 func parseIndexOp(payload json.RawMessage, defaultIndex string) (*opensearchpb.IndexOperation, error) {
 	var op struct {
-		Index  string `json:"_index"`
-		ID     string `json:"_id"`
+		Index   string `json:"_index"`
+		ID      string `json:"_id"`
 		Routing string `json:"routing"`
 	}
 	_ = json.Unmarshal(payload, &op)
