@@ -1,4 +1,4 @@
-package opensearch
+package search_engine_client
 
 import (
 	"bytes"

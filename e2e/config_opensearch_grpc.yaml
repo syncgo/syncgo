@@ -1,0 +1,16 @@
+postgresql:
+  user: pglogrepl
+  password: secret
+  host: localhost
+  port: 5432
+  database: pglogrepl
+search_engine:
+  name: opensearch
+  addresses:
+    - http://localhost:9300
+  username: admin
+  password: Op3nS3arch!
+  index: test_index
+  grpc:
+    host: localhost
+    port: 50051

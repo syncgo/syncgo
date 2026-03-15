@@ -14,12 +14,11 @@ import (
 
 	"github.com/romanchechyotkin/syncgo/internal/replication"
 	"github.com/romanchechyotkin/syncgo/pkg/config"
-	"github.com/romanchechyotkin/syncgo/pkg/elasticsearch"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
 	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
 	"github.com/romanchechyotkin/syncgo/pkg/metrics"
-	"github.com/romanchechyotkin/syncgo/pkg/opensearch"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
+	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -45,22 +44,12 @@ func main() {
 
 	monitoring := metrics.New()
 
-	if cfg.Elasticsearch != nil {
-		esClient, err := initEsClient(initCtx, cfg.Elasticsearch, monitoring)
-		if err != nil {
-			slog.Error("failed init elasticsearch connection", slog.String("err", err.Error()))
-			os.Exit(1)
-		}
-		_ = esClient
+	esClient, err := initClient(initCtx, cfg.SearchEngine, monitoring)
+	if err != nil {
+		slog.Error("failed init elasticsearch connection", slog.String("err", err.Error()))
+		os.Exit(1)
 	}
-	if cfg.OpenSearch != nil {
-		osClient, err := initOpenSearchClient(initCtx, cfg.OpenSearch, monitoring)
-		if err != nil {
-			slog.Error("failed init opensearch connection", slog.String("err", err.Error()))
-			os.Exit(1)
-		}
-		_ = osClient
-	}
+	_ = esClient
 
 	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg)
 	if err != nil {
@@ -83,8 +72,8 @@ func main() {
 	slog.Info("syncgo stopped successfully")
 }
 
-func initEsClient(ctx context.Context, cfg *config.SearchConfig, monitoring *metrics.SearchMetrics) (*elasticsearch.Client, error) {
-	esClient, err := elasticsearch.New(ctx, elasticsearch.Config{
+func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.SearchMetrics) (*search_engine_client.Client, error) {
+	esClient, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Addresses:         cfg.Addresses,
 		Username:          cfg.Username,
 		Password:          cfg.Password,
@@ -100,31 +89,6 @@ func initEsClient(ctx context.Context, cfg *config.SearchConfig, monitoring *met
 	}
 
 	return esClient, nil
-}
-
-func initOpenSearchClient(ctx context.Context, cfg *config.OpenSearchConfig, monitoring *metrics.SearchMetrics) (*opensearch.Client, error) {
-	osCfg := opensearch.Config{
-		Addresses:         cfg.Addresses,
-		Username:          cfg.Username,
-		Password:          cfg.Password,
-		Index:             cfg.Index,
-		ConnectionTimeout: cfg.ConnectionTimeout,
-		GzipCompression:   cfg.GzipCompression,
-		TLS:               searchTLSToClient(cfg.TLS),
-		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
-	}
-	if cfg.UseGRPC() {
-		osCfg.GRPC = &opensearch.GRPCConfig{
-			Host: cfg.GRPC.Host,
-			Port: cfg.GRPC.Port,
-		}
-	}
-	osClient, err := opensearch.New(ctx, osCfg, monitoring)
-	if err != nil {
-		slog.Error("failed to create opensearch client", slog.String("error", err.Error()))
-		return nil, err
-	}
-	return osClient, nil
 }
 
 func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config) (*replication.LogicalReplicationConn, error) {

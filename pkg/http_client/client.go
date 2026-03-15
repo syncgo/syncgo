@@ -2,7 +2,6 @@ package http_client
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
@@ -79,8 +78,11 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	}, nil
 }
 
+// DoTimeout sends a request using the client's auth and TLS settings.
+// If rawURL is empty, the request is sent to the client's configured endpoint.
+// The caller is responsible for inspecting the returned status code.
 func (c *Client) DoTimeout(
-	method, contentType string,
+	rawURL, method, contentType string,
 	body []byte,
 	timeout time.Duration,
 	processResponse func([]byte) error,
@@ -90,22 +92,28 @@ func (c *Client) DoTimeout(
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
-	c.prepareRequest(req, c.endpoint, method, contentType, body)
+	endpoint := c.endpoint
+	if rawURL != "" {
+		endpoint = &fasthttp.URI{}
+		if err := endpoint.Parse(nil, []byte(rawURL)); err != nil {
+			return 0, fmt.Errorf("can't parse URL %s: %w", rawURL, err)
+		}
+	}
+
+	c.prepareRequest(req, endpoint, method, contentType, body)
 
 	if err := c.client.DoTimeout(req, resp, timeout); err != nil {
-		return 0, fmt.Errorf("can't send request to %s: %w", c.endpoint.String(), err)
+		return 0, fmt.Errorf("can't send request to %s: %w", endpoint.String(), err)
 	}
 
-	respContent := resp.Body()
 	statusCode := resp.Header.StatusCode()
 
-	if statusCode < http.StatusOK || statusCode > http.StatusAccepted {
-		return statusCode, fmt.Errorf("response status from %s isn't OK: status=%d, body=%s", c.endpoint.String(), statusCode, string(respContent))
+	if processResponse != nil {
+		if err := processResponse(resp.Body()); err != nil {
+			return statusCode, err
+		}
 	}
 
-	if processResponse != nil {
-		return statusCode, processResponse(respContent)
-	}
 	return statusCode, nil
 }
 

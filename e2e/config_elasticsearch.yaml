@@ -1,0 +1,13 @@
+postgresql:
+  user: pglogrepl
+  password: secret
+  host: localhost
+  port: 5432
+  database: pglogrepl
+search_engine:
+  name: elasticsearh
+  addresses:
+    - http://localhost:9200
+  username: admin
+  password: Es123456
+  index: test_index

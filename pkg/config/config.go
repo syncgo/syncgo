@@ -10,21 +10,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const defaultConfigPath = "config.yaml"
+const (
+	defaultConfigPath = "config.yaml"
+
+	elasticsearch = "elasticsearh"
+	opensearch    = "opensearch"
+)
 
 // Config holds the complete application configuration
 type Config struct {
-	PostgreSQL    PostgreSQLConfig  `yaml:"postgresql"`
-	Elasticsearch *SearchConfig     `yaml:"elasticsearch,omitempty"`
-	OpenSearch    *OpenSearchConfig `yaml:"opensearch,omitempty"`
-	Metrics       MetricsConfig     `yaml:"metrics"`
-}
-
-// OpenSearchConfig holds OpenSearch connection configuration (HTTP and optional gRPC).
-// gRPC is only valid for OpenSearch; when set, the client uses gRPC for bulk operations instead of HTTP.
-type OpenSearchConfig struct {
-	SearchConfig `yaml:",inline"`
-	GRPC         *OpenSearchGRPCConfig `yaml:"grpc,omitempty"`
+	PostgreSQL   PostgreSQLConfig   `yaml:"postgresql"`
+	SearchEngine SearchEngineConfig `yaml:"search_engine"`
+	Metrics      MetricsConfig      `yaml:"metrics"`
 }
 
 // OpenSearchGRPCConfig holds gRPC connection settings for OpenSearch.
@@ -49,7 +46,8 @@ type PostgreSQLConfig struct {
 }
 
 // SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).
-type SearchConfig struct {
+type SearchEngineConfig struct {
+	Name              string                    `yaml:"name"`
 	Addresses         []string                  `yaml:"addresses"`
 	Username          string                    `yaml:"username"`
 	Password          string                    `yaml:"password"`
@@ -60,6 +58,7 @@ type SearchConfig struct {
 	GzipCompression   gzip.GzipCompressionLevel `yaml:"gzip_compression"`
 	TLS               *SearchTLSConfig          `yaml:"tls"`
 	KeepAlive         *SearchKeepAliveConfig    `yaml:"keep_alive"`
+	GRPC              *OpenSearchGRPCConfig     `yaml:"grpc,omitempty"`
 }
 
 type SearchTLSConfig struct {
@@ -74,20 +73,22 @@ type SearchKeepAliveConfig struct {
 
 // Validate checks that the configuration is valid
 func (c *Config) Validate() error {
-	hasES := c.Elasticsearch != nil && len(c.Elasticsearch.Addresses) > 0
-	hasOS := c.OpenSearch != nil && len(c.OpenSearch.Addresses) > 0
-	if hasES && hasOS {
-		return fmt.Errorf("only one of elasticsearch or opensearch can be configured")
+	name := c.SearchEngine.Name
+
+	if name != elasticsearch && name != opensearch {
+		return fmt.Errorf(`search engine name should be "elasticsearh" or "opensearch"`)
 	}
-	if !hasES && !hasOS {
-		return fmt.Errorf("either elasticsearch or opensearch must be configured with at least one address")
+
+	if len(c.SearchEngine.Addresses) == 0 {
+		return fmt.Errorf("must be configured at least one address")
 	}
+
 	return nil
 }
 
 // UseGRPC returns true if OpenSearch is configured with gRPC (host and port set).
-func (c *OpenSearchConfig) UseGRPC() bool {
-	return c != nil && c.GRPC != nil && c.GRPC.Host != "" && c.GRPC.Port > 0
+func (c *SearchEngineConfig) UseGRPC() bool {
+	return c != nil && c.Name == opensearch && c.GRPC != nil && c.GRPC.Host != "" && c.GRPC.Port > 0
 }
 
 // LoadFromYAML loads configuration from a YAML file

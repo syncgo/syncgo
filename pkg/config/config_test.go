@@ -16,42 +16,40 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with elasticsearch",
 			config: Config{
-				Elasticsearch: &SearchConfig{Addresses: []string{"http://localhost:9200"}},
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Addresses: []string{"http://localhost:9200"}},
 			},
 			expectError: false,
 		},
 		{
 			name: "valid config with opensearch",
 			config: Config{
-				OpenSearch: &OpenSearchConfig{SearchConfig: SearchConfig{Addresses: []string{"http://localhost:9300"}}},
+				SearchEngine: SearchEngineConfig{Name: opensearch, Addresses: []string{"http://localhost:9300"}},
 			},
 			expectError: false,
 		},
 		{
-			name: "invalid config - both configured",
-			config: Config{
-				Elasticsearch: &SearchConfig{Addresses: []string{"http://localhost:9200"}},
-				OpenSearch:    &OpenSearchConfig{SearchConfig: SearchConfig{Addresses: []string{"http://localhost:9300"}}},
-			},
-			expectError: true,
-			errorMsg:    "only one of elasticsearch or opensearch can be configured",
-		},
-		{
-			name: "invalid config - neither configured",
-			config: Config{
-				Elasticsearch: nil,
-				OpenSearch:    nil,
-			},
-			expectError: true,
-			errorMsg:    "either elasticsearch or opensearch must be configured with at least one address",
-		},
-		{
 			name: "invalid config - opensearch with no addresses",
 			config: Config{
-				OpenSearch: &OpenSearchConfig{SearchConfig: SearchConfig{Addresses: nil}},
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Addresses: nil},
 			},
 			expectError: true,
-			errorMsg:    "either elasticsearch or opensearch must be configured with at least one address",
+			errorMsg:    "must be configured at least one address",
+		},
+		{
+			name: "no search engine name",
+			config: Config{
+				SearchEngine: SearchEngineConfig{Addresses: nil},
+			},
+			expectError: true,
+			errorMsg:    `search engine name should be "elasticsearh" or "opensearch"`,
+		},
+		{
+			name: "wrong search engine name",
+			config: Config{
+				SearchEngine: SearchEngineConfig{Name: "test"},
+			},
+			expectError: true,
+			errorMsg:    `search engine name should be "elasticsearh" or "opensearch"`,
 		},
 	}
 
@@ -92,7 +90,8 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
-elasticsearch:
+search_engine:
+  name: elasticsearh
   addresses:
     - http://localhost:9200
   username: admin
@@ -109,7 +108,8 @@ postgresql:
   host: db.example.com
   port: "5432"
   database: mydb
-opensearch:
+search_engine:
+  name: opensearch
   addresses:
     - http://localhost:9300
     - http://localhost:9301
@@ -165,7 +165,7 @@ postgresql:
 		},
 		{
 			name:        "file not found",
-			path:        "nonexistent-config.yaml",
+			path:        "nonexistent-config_opensearch.yaml",
 			expectError: true,
 			errorMsg:    "config file not found",
 		},
@@ -178,7 +178,8 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
-elasticsearch:
+search_engine:
+  name: elasticsearh
   addresses:
     - http://localhost:9200
   username: admin

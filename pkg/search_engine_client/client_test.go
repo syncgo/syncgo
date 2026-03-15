@@ -1,14 +1,18 @@
-package elasticsearch
+package search_engine_client
 
 import (
 	"context"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client/mocks"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestNew(t *testing.T) {
-	// Skip if no Elasticsearch available (for CI, we'll use service containers)
+	// Skip if no OpenSearch available (for CI, we'll use service containers)
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -17,19 +21,19 @@ func TestNew(t *testing.T) {
 	defer cancel()
 
 	// Get test server address from environment or use default
-	esAddr := os.Getenv("ELASTICSEARCH_ADDRESS")
-	if esAddr == "" {
-		esAddr = "http://localhost:9200"
+	osAddr := os.Getenv("OPENSEARCH_ADDRESS")
+	if osAddr == "" {
+		osAddr = "http://localhost:9300"
 	}
 
-	esUser := os.Getenv("ELASTICSEARCH_USER")
-	if esUser == "" {
-		esUser = "admin"
+	osUser := os.Getenv("OPENSEARCH_USER")
+	if osUser == "" {
+		osUser = "admin"
 	}
 
-	esPassword := os.Getenv("ELASTICSEARCH_PASSWORD")
-	if esPassword == "" {
-		esPassword = "Es123456"
+	osPassword := os.Getenv("OPENSEARCH_PASSWORD")
+	if osPassword == "" {
+		osPassword = "Op3nS3arch!"
 	}
 
 	tests := []struct {
@@ -40,25 +44,25 @@ func TestNew(t *testing.T) {
 		{
 			name: "valid connection with username and password",
 			config: Config{
-				Addresses: []string{esAddr},
-				Username:  esUser,
-				Password:  esPassword,
+				Addresses: []string{osAddr},
+				Username:  osUser,
+				Password:  osPassword,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid connection without auth (if security disabled)",
 			config: Config{
-				Addresses: []string{esAddr},
+				Addresses: []string{osAddr},
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid address",
 			config: Config{
-				Addresses: []string{"http://invalid-host:9200"},
-				Username:  esUser,
-				Password:  esPassword,
+				Addresses: []string{"http://invalid-host:9300"},
+				Username:  osUser,
+				Password:  osPassword,
 			},
 			wantErr: true,
 		},
@@ -66,7 +70,12 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := New(ctx, tt.config)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			monitoring := mocks.NewMockMonitoring(ctrl)
+
+			client, err := New(ctx, tt.config, monitoring)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -87,22 +96,26 @@ func TestNew_WithAPIKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	esAddr := os.Getenv("ELASTICSEARCH_ADDRESS")
-	if esAddr == "" {
-		esAddr = "http://localhost:9200"
+	osAddr := os.Getenv("OPENSEARCH_ADDRESS")
+	if osAddr == "" {
+		osAddr = "http://localhost:9300"
 	}
 
-	apiKey := os.Getenv("ELASTICSEARCH_API_KEY")
+	apiKey := os.Getenv("OPENSEARCH_API_KEY")
 	if apiKey == "" {
-		t.Skip("ELASTICSEARCH_API_KEY not set, skipping API key test")
+		t.Skip("OPENSEARCH_API_KEY not set, skipping API key test")
 	}
 
 	config := Config{
-		Addresses: []string{esAddr},
+		Addresses: []string{osAddr},
 		APIKey:    apiKey,
 	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	client, err := New(ctx, config)
+	monitoring := mocks.NewMockMonitoring(ctrl)
+
+	client, err := New(ctx, config, monitoring)
 	if err != nil {
 		t.Fatalf("New() with API key error = %v", err)
 	}
@@ -119,16 +132,21 @@ func TestNew_WithCloudID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cloudID := os.Getenv("ELASTICSEARCH_CLOUD_ID")
+	cloudID := os.Getenv("OPENSEARCH_CLOUD_ID")
 	if cloudID == "" {
-		t.Skip("ELASTICSEARCH_CLOUD_ID not set, skipping Cloud ID test")
+		t.Skip("OPENSEARCH_CLOUD_ID not set, skipping Cloud ID test")
 	}
 
 	config := Config{
 		CloudID: cloudID,
 	}
 
-	client, err := New(ctx, config)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	monitoring := mocks.NewMockMonitoring(ctrl)
+
+	client, err := New(ctx, config, monitoring)
 	if err != nil {
 		t.Fatalf("New() with CloudID error = %v", err)
 	}

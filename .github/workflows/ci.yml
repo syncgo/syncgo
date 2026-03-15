@@ -141,6 +141,29 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  e2e:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Start services
+        run: docker compose -f e2e/docker-compose.yml up -d --wait --wait-timeout 300
+
+      - name: E2E tests
+        run: go test -v -tags e2e -timeout 5m ./e2e/...
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f e2e/docker-compose.yml down -v
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -201,9 +224,10 @@ jobs:
         run: |
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1  
+          go install go.uber.org/mock/mockgen@v0.6.0
 
-      - name: Download dependencies
-        run: go mod download && go mod tidy
+      - name: Tidy dependencies
+        run: go mod tidy
 
       - name: Verify modules
         run: go mod verify

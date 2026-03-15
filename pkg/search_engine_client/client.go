@@ -1,4 +1,4 @@
-package opensearch
+package search_engine_client
 
 import (
 	"context"
@@ -34,6 +34,7 @@ type GRPCConfig struct {
 }
 
 type Config struct {
+	Name              string
 	Addresses         []string
 	Username          string
 	Password          string
@@ -48,12 +49,16 @@ type Config struct {
 	GRPC *GRPCConfig
 }
 
+//go:generate mockgen -source=client.go -destination=./mocks/monitoring_mock.go -package=mocks
 type Monitoring interface {
 	IncSearchRequests(backend, status string)
 	AddSearchErrors(backend string, errorsCount float64)
 }
 
 type Client struct {
+	name    string
+	baseURL string
+
 	pingClient *http_client.Client
 	httpClient *http_client.Client
 
@@ -114,17 +119,17 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		pingTimeout = timeout
 	}
 
-	statusCode, err := pingClient.DoTimeout(http.MethodGet, "", nil, pingTimeout, nil)
+	statusCode, err := pingClient.DoTimeout("", http.MethodGet, "", nil, pingTimeout, nil)
 	if err != nil {
-		return nil, fmt.Errorf("opensearch ping failed: %w", err)
+		return nil, fmt.Errorf("%s ping failed: %w", cfg.Name, err)
 	}
 	if statusCode < http.StatusOK || statusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("opensearch ping failed with status: %d", statusCode)
+		return nil, fmt.Errorf("%s ping fail-ededd with status: %d", cfg.Name, statusCode)
 	}
 
-	slog.Debug("opensearch connection established successfully")
+	slog.Debug(fmt.Sprintf("%s connection established successfully", cfg.Name))
 
-	client := &Client{pingClient: pingClient, index: cfg.Index, timeout: timeout}
+	client := &Client{name: cfg.Name, baseURL: baseURL, pingClient: pingClient, index: cfg.Index, timeout: timeout, monitoring: monitoring}
 
 	if cfg.GRPC != nil && cfg.GRPC.Host != "" && cfg.GRPC.Port > 0 {
 		addr := net.JoinHostPort(cfg.GRPC.Host, strconv.Itoa(cfg.GRPC.Port))
@@ -157,8 +162,6 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 	return client, nil
 }
 
-const backendName = "opensearch"
-
 // Close closes the gRPC connection if the client was created with gRPC. No-op for HTTP-only client.
 func (c *Client) Close() error {
 	if c.grpcConn != nil {
@@ -177,21 +180,21 @@ func (c *Client) Bulk(ctx context.Context, data []byte) error {
 func (c *Client) bulkGRPC(ctx context.Context, data []byte) error {
 	req, err := ndjsonToBulkRequest(data, c.index)
 	if err != nil {
-		c.monitoring.IncSearchRequests(backendName, "fail")
+		c.monitoring.IncSearchRequests(c.name, "fail")
 		return fmt.Errorf("opensearch gRPC bulk: invalid NDJSON: %w", err)
 	}
 	resp, err := c.docClient.Bulk(ctx, req)
 	if err != nil {
-		c.monitoring.IncSearchRequests(backendName, "fail")
+		c.monitoring.IncSearchRequests(c.name, "fail")
 		return fmt.Errorf("opensearch gRPC bulk: %w", err)
 	}
 	indexingErrors := reportGRPCBulkErrors(resp)
-	status := "success"
 	if indexingErrors > 0 {
-		status = "fail"
-		c.monitoring.AddSearchErrors(backendName, float64(indexingErrors))
+		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
+		c.monitoring.IncSearchRequests(c.name, "fail")
+		return fmt.Errorf("opensearch gRPC bulk: %d item(s) failed to index", indexingErrors)
 	}
-	c.monitoring.IncSearchRequests(backendName, status)
+	c.monitoring.IncSearchRequests(c.name, "success")
 	return nil
 }
 
@@ -199,6 +202,7 @@ func (c *Client) bulkHTTP(ctx context.Context, data []byte) error {
 	timeout := timeoutFromContext(ctx, c.timeout)
 	var indexingErrors int
 	statusCode, err := c.httpClient.DoTimeout(
+		"",
 		http.MethodPost,
 		contentTypeNDJSON,
 		data,
@@ -206,22 +210,20 @@ func (c *Client) bulkHTTP(ctx context.Context, data []byte) error {
 		func(body []byte) error {
 			indexingErrors = c.reportOSErrors(body)
 			return nil
-		},
-	)
-	status := "success"
-	if err != nil || indexingErrors > 0 {
-		status = "fail"
-	}
-	c.monitoring.IncSearchRequests(backendName, status)
-	if indexingErrors > 0 {
-		c.monitoring.AddSearchErrors(backendName, float64(indexingErrors))
-	}
+		})
 	if err != nil {
+		c.monitoring.IncSearchRequests(c.name, "fail")
 		if statusCode >= http.StatusBadRequest {
-			return fmt.Errorf("opensearch bulk request failed with status %d: %w", statusCode, err)
+			return fmt.Errorf("%s bulk request failed with status %d: %w", c.name, statusCode, err)
 		}
 		return fmt.Errorf("can't send bulk request: %w", err)
 	}
+	if indexingErrors > 0 {
+		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
+		c.monitoring.IncSearchRequests(c.name, "fail")
+		return fmt.Errorf("%s bulk: %d item(s) failed to index", c.name, indexingErrors)
+	}
+	c.monitoring.IncSearchRequests(c.name, "success")
 	return nil
 }
 
@@ -308,7 +310,7 @@ func (c *Client) reportOSErrors(data []byte) int {
 	}
 
 	if len(response.Items) == 0 {
-		slog.Error("unknown opensearch error, 'items' field in the response is empty",
+		slog.Error(fmt.Sprintf("unknown %s error, 'items' field in the response is empty", c.name),
 			slog.String("response", string(data)),
 		)
 		return 0
@@ -326,7 +328,7 @@ func (c *Client) reportOSErrors(data []byte) int {
 		}
 
 		if actionNode == nil {
-			slog.Error("unknown opensearch response, action field in the response is empty",
+			slog.Error(fmt.Sprintf("unknown %s response, action field in the response is empty", c.name),
 				slog.String("response", string(data)),
 			)
 			continue
@@ -348,7 +350,7 @@ func (c *Client) reportOSErrors(data []byte) int {
 		if actionResult.Error != nil {
 			indexingErrors++
 			errorJSON, _ := json.Marshal(actionResult.Error)
-			slog.Error("opensearch indexing error",
+			slog.Error(fmt.Sprintf("%s indexing error", c.name),
 				slog.String("action", actionType),
 				slog.String("error", string(errorJSON)),
 			)
@@ -356,7 +358,7 @@ func (c *Client) reportOSErrors(data []byte) int {
 		}
 
 		if actionResult.Status >= http.StatusBadRequest {
-			slog.Error("unknown opensearch error",
+			slog.Error(fmt.Sprintf("unknown %s error", c.name),
 				slog.String("action", actionType),
 				slog.Int("status", actionResult.Status),
 				slog.String("response", string(actionNode)),
@@ -371,4 +373,54 @@ func (c *Client) reportOSErrors(data []byte) int {
 	}
 
 	return indexingErrors
+}
+
+// IndexExists checks whether the given index exists.
+// Uses HEAD /{index} — identical API for both Elasticsearch and OpenSearch.
+// Returns (true, nil) if the index exists, (false, nil) if it does not, or (false, error) on failure.
+func (c *Client) IndexExists(ctx context.Context, index string) (bool, error) {
+	url := c.baseURL + "/" + index
+	timeout := timeoutFromContext(ctx, c.timeout)
+
+	statusCode, err := c.pingClient.DoTimeout(url, http.MethodHead, "", nil, timeout, nil)
+	if err != nil {
+		return false, fmt.Errorf("%s index exists check failed: %w", c.name, err)
+	}
+
+	switch statusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s index exists check returned unexpected status: %d", c.name, statusCode)
+	}
+}
+
+// CreateIndex creates the given index with optional settings and mappings.
+// Uses PUT /{index} — identical API for both Elasticsearch and OpenSearch.
+// body may be nil to create an index with default settings.
+func (c *Client) CreateIndex(ctx context.Context, index string, body []byte) error {
+	url := c.baseURL + "/" + index
+	timeout := timeoutFromContext(ctx, c.timeout)
+
+	contentType := ""
+	if len(body) > 0 {
+		contentType = "application/json"
+	}
+
+	statusCode, err := c.pingClient.DoTimeout(url, http.MethodPut, contentType, body, timeout, nil)
+	if err != nil {
+		return fmt.Errorf("%s create index failed: %w", c.name, err)
+	}
+
+	if statusCode < http.StatusOK || statusCode > http.StatusAccepted {
+		return fmt.Errorf("%s create index failed with status: %d", c.name, statusCode)
+	}
+
+	return nil
+}
+
+func (c *Client) GrpcIsConnected() bool {
+	return c.grpcConn != nil
 }

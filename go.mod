@@ -3,11 +3,13 @@ module github.com/romanchechyotkin/syncgo
 go 1.25.1
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pglogrepl v0.0.0-20250509230407-a9884f6bd75a
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.69.0
+	go.uber.org/mock v0.6.0
 	google.golang.org/grpc v1.79.1
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v3 v3.0.1
