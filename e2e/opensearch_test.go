@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
 	"github.com/romanchechyotkin/syncgo/pkg/config"
 	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client"
 	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client/mocks"
@@ -55,7 +56,15 @@ func TestOpensearchClient_Create(t *testing.T) {
 
 	test_uuid := uuid.New().String()
 
-	if err := client.Bulk(ctx, []byte("{ \"create\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n  { \"title\": \"Prisoners 2\", \"year\": 2013 }\n")); err != nil {
+	payload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Create,
+			Body:   []byte(`{"title":"Prisoners 2","year":2013}`),
+		},
+	}
+
+	if err := client.Bulk(ctx, payload); err != nil {
 		t.Fatal("e2e; opensearch; failed to create index & document through bulk api; error: ", err)
 	}
 }
@@ -74,11 +83,26 @@ func TestOpensearchClient_Delete(t *testing.T) {
 
 	test_uuid := uuid.New().String()
 
-	if err := client.Bulk(ctx, []byte("{ \"create\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n  { \"title\": \"Prisoners 2\", \"year\": 2013 }\n")); err != nil {
+	createPayload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Create,
+			Body:   []byte(`{"title":"Prisoners 2","year":2013}`),
+		},
+	}
+
+	if err := client.Bulk(ctx, createPayload); err != nil {
 		t.Fatal("e2e; opensearch; failed to create index & document through bulk api; error: ", err)
 	}
 
-	if err := client.Bulk(ctx, []byte("{ \"delete\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n")); err != nil {
+	deletePayload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Delete,
+		},
+	}
+
+	if err := client.Bulk(ctx, deletePayload); err != nil {
 		t.Fatal("e2e; opensearch; failed to delete document through bulk api; error: ", err)
 	}
 }
@@ -97,11 +121,27 @@ func TestOpensearchClient_Index(t *testing.T) {
 
 	test_uuid := uuid.New().String()
 
-	if err := client.Bulk(ctx, []byte("{ \"create\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n { \"title\": \"Prisoners 2\", \"year\": 2013 }\n")); err != nil {
+	createPayload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Create,
+			Body:   []byte(`{"title":"Prisoners 2","year":2013}`),
+		},
+	}
+
+	if err := client.Bulk(ctx, createPayload); err != nil {
 		t.Fatal("e2e; opensearch; failed to create index & document through bulk api; error: ", err)
 	}
 
-	if err := client.Bulk(ctx, []byte("{ \"index\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n { \"title\": \"Rush\", \"year\": 2013}\n")); err != nil {
+	indexPayload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Index,
+			Body:   []byte(`{"title":"Rush","year":2013}`),
+		},
+	}
+
+	if err := client.Bulk(ctx, indexPayload); err != nil {
 		t.Fatal("e2e; opensearch; failed to index document through bulk api; error: ", err)
 	}
 }
@@ -120,11 +160,27 @@ func TestOpensearchClient_Update(t *testing.T) {
 
 	test_uuid := uuid.New().String()
 
-	if err := client.Bulk(ctx, []byte("{ \"create\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n { \"title\": \"Prisoners 2\", \"year\": 2013 }\n")); err != nil {
+	createPayload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Create,
+			Body:   []byte(`{"title":"Prisoners 2","year":2013}`),
+		},
+	}
+
+	if err := client.Bulk(ctx, createPayload); err != nil {
 		t.Fatal("e2e; opensearch; failed to create index & document through bulk api; error: ", err)
 	}
 
-	if err := client.Bulk(ctx, []byte("{ \"update\": { \"_index\": \"test_index\", \"_id\": \""+test_uuid+"\" } }\n { \"doc\" : { \"title\": \"World War Z\" } }\n")); err != nil {
+	updatePayload := bulk_transformer.DataPayload{
+		{
+			ID:     test_uuid,
+			Action: bulk_transformer.Update,
+			Body:   []byte(`{"title":"World War Z"}`),
+		},
+	}
+
+	if err := client.Bulk(ctx, updatePayload); err != nil {
 		t.Fatal("e2e; opensearch; failed to update document through bulk api; error: ", err)
 	}
 }

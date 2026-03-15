@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
 	"github.com/romanchechyotkin/syncgo/internal/pb/opensearchpb"
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
@@ -135,11 +136,11 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		addr := net.JoinHostPort(cfg.GRPC.Host, strconv.Itoa(cfg.GRPC.Port))
 		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			return nil, fmt.Errorf("can't connect to opensearch gRPC at %s: %w", addr, err)
+			return nil, fmt.Errorf("can't connect to %s gRPC at %s: %w", cfg.Name, addr, err)
 		}
 		client.grpcConn = conn
 		client.docClient = opensearchpb.NewDocumentServiceClient(conn)
-		slog.Debug("opensearch gRPC client connected", slog.String("addr", addr))
+		slog.Debug(fmt.Sprintf("%s gRPC client connected", cfg.Name), slog.String("addr", addr))
 		return client, nil
 	}
 
@@ -170,42 +171,45 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) Bulk(ctx context.Context, data []byte) error {
+// Bulk executes a bulk operation using either gRPC (if configured) or HTTP.
+// It accepts a bulk_transformer.DataPayload and returns an error only.
+func (c *Client) Bulk(ctx context.Context, data bulk_transformer.DataPayload) error {
 	if c.docClient != nil {
 		return c.bulkGRPC(ctx, data)
 	}
 	return c.bulkHTTP(ctx, data)
 }
 
-func (c *Client) bulkGRPC(ctx context.Context, data []byte) error {
-	req, err := ndjsonToBulkRequest(data, c.index)
-	if err != nil {
-		c.monitoring.IncSearchRequests(c.name, "fail")
-		return fmt.Errorf("opensearch gRPC bulk: invalid NDJSON: %w", err)
-	}
+// bulkGRPC sends bulk data via the OpenSearch gRPC DocumentService.
+func (c *Client) bulkGRPC(ctx context.Context, data bulk_transformer.DataPayload) error {
+	req := data.ToBulkRequest(c.index)
 	resp, err := c.docClient.Bulk(ctx, req)
 	if err != nil {
 		c.monitoring.IncSearchRequests(c.name, "fail")
 		return fmt.Errorf("opensearch gRPC bulk: %w", err)
 	}
+
 	indexingErrors := reportGRPCBulkErrors(resp)
 	if indexingErrors > 0 {
 		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
 		c.monitoring.IncSearchRequests(c.name, "fail")
 		return fmt.Errorf("opensearch gRPC bulk: %d item(s) failed to index", indexingErrors)
 	}
+
 	c.monitoring.IncSearchRequests(c.name, "success")
 	return nil
 }
 
-func (c *Client) bulkHTTP(ctx context.Context, data []byte) error {
+// bulkHTTP sends bulk data via the HTTP _bulk API.
+func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload) error {
 	timeout := timeoutFromContext(ctx, c.timeout)
 	var indexingErrors int
+	body := data.Bytes()
 	statusCode, err := c.httpClient.DoTimeout(
 		"",
 		http.MethodPost,
 		contentTypeNDJSON,
-		data,
+		body,
 		timeout,
 		func(body []byte) error {
 			indexingErrors = c.reportOSErrors(body)
@@ -218,6 +222,7 @@ func (c *Client) bulkHTTP(ctx context.Context, data []byte) error {
 		}
 		return fmt.Errorf("can't send bulk request: %w", err)
 	}
+
 	if indexingErrors > 0 {
 		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
 		c.monitoring.IncSearchRequests(c.name, "fail")
