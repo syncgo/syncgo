@@ -50,7 +50,7 @@ type Config struct {
 	GRPC *GRPCConfig
 }
 
-//go:generate mockgen -source=client.go -destination=./mocks/monitoring_mock.go -package=mocks
+//go:generate go tool mockgen -source=client.go -destination=./mocks/monitoring_mock.go -package=mocks
 type Monitoring interface {
 	IncSearchRequests(backend, status string)
 	AddSearchErrors(backend string, errorsCount float64)
