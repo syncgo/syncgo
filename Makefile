@@ -10,11 +10,6 @@ tools:
 	GOBIN=$(GOBIN) go install tool
 
 generate: tools
-	PATH=$(GOBIN):$$PATH protoc \
-		--go_out=. --go_opt=module=$(MODULE) \
-		--go-grpc_out=. --go-grpc_opt=module=$(MODULE) \
-		--proto_path=proto \
-		proto/schemas/common.proto proto/services/*.proto
 	go generate ./...
 
 build:

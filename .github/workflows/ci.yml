@@ -214,11 +214,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "32.1"
-
       - name: Generate all
         run: make generate
 

@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
-	"github.com/romanchechyotkin/syncgo/internal/pb/opensearchpb"
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
+	"github.com/syncgo/opensearchpb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

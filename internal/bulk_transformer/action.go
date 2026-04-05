@@ -3,7 +3,7 @@ package bulk_transformer
 import (
 	"bytes"
 
-	"github.com/romanchechyotkin/syncgo/internal/pb/opensearchpb"
+	"github.com/syncgo/opensearchpb"
 )
 
 type Action byte
