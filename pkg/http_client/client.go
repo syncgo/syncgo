@@ -40,7 +40,7 @@ type Client struct {
 	gzipCompressionLevel int
 }
 
-func NewClient(cfg *ClientConfig) (*Client, error) {
+func NewClient(cfg ClientConfig) (*Client, error) {
 	client := &fasthttp.Client{
 		ReadTimeout:  cfg.ConnectionTimeout,
 		WriteTimeout: cfg.ConnectionTimeout,

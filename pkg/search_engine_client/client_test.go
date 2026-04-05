@@ -44,25 +44,25 @@ func TestNew(t *testing.T) {
 		{
 			name: "valid connection with username and password",
 			config: Config{
-				Addresses: []string{osAddr},
-				Username:  osUser,
-				Password:  osPassword,
+				Address:  osAddr,
+				Username: osUser,
+				Password: osPassword,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid connection without auth (if security disabled)",
 			config: Config{
-				Addresses: []string{osAddr},
+				Address: osAddr,
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid address",
 			config: Config{
-				Addresses: []string{"http://invalid-host:9300"},
-				Username:  osUser,
-				Password:  osPassword,
+				Address:  "http://invalid-host:9300",
+				Username: osUser,
+				Password: osPassword,
 			},
 			wantErr: true,
 		},
@@ -107,8 +107,8 @@ func TestNew_WithAPIKey(t *testing.T) {
 	}
 
 	config := Config{
-		Addresses: []string{osAddr},
-		APIKey:    apiKey,
+		Address: osAddr,
+		APIKey:  apiKey,
 	}
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
@@ -22,9 +21,11 @@ import (
 )
 
 const (
-	defaultConnTimeout = 30 * time.Second
-	pingTimeoutLimit   = 10 * time.Second
-	contentTypeNDJSON  = "application/x-ndjson"
+	defaultConnTimeout    = 30 * time.Second
+	pingTimeoutLimit      = 10 * time.Second
+	contentTypeNDJSON     = "application/x-ndjson"
+	clusterHealthInterval = time.Minute
+	cancelTimeout         = 30 * time.Second
 )
 
 // GRPCConfig holds gRPC connection settings for OpenSearch (optional).
@@ -36,7 +37,7 @@ type GRPCConfig struct {
 
 type Config struct {
 	Name              string
-	Addresses         []string
+	Address           string
 	Username          string
 	Password          string
 	APIKey            string
@@ -73,13 +74,6 @@ type Client struct {
 }
 
 func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error) {
-	if len(cfg.Addresses) == 0 {
-		return nil, fmt.Errorf("at least one address must be provided")
-	}
-
-	// Use the first address as the base URL
-	baseURL := strings.TrimSuffix(cfg.Addresses[0], "/")
-
 	// Build auth header
 	var authHeader string
 	if cfg.APIKey != "" {
@@ -103,8 +97,8 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		timeout = defaultConnTimeout
 	}
 
-	pingClient, err := http_client.NewClient(&http_client.ClientConfig{
-		Endpoint:             baseURL,
+	pingClient, err := http_client.NewClient(http_client.ClientConfig{
+		Endpoint:             cfg.Address,
 		ConnectionTimeout:    timeout,
 		AuthHeader:           authHeader,
 		GzipCompressionLevel: cfg.GzipCompression,
@@ -115,22 +109,9 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return nil, fmt.Errorf("can't create http client: %w", err)
 	}
 
-	pingTimeout := pingTimeoutLimit
-	if timeout < pingTimeout {
-		pingTimeout = timeout
-	}
-
-	statusCode, err := pingClient.DoTimeout("", http.MethodGet, "", nil, pingTimeout, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%s ping failed: %w", cfg.Name, err)
-	}
-	if statusCode < http.StatusOK || statusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("%s ping fail-ededd with status: %d", cfg.Name, statusCode)
-	}
-
 	slog.Debug(fmt.Sprintf("%s connection established successfully", cfg.Name))
 
-	client := &Client{name: cfg.Name, baseURL: baseURL, pingClient: pingClient, index: cfg.Index, timeout: timeout, monitoring: monitoring}
+	client := &Client{name: cfg.Name, baseURL: cfg.Address, pingClient: pingClient, index: cfg.Index, timeout: timeout, monitoring: monitoring}
 
 	if cfg.GRPC != nil && cfg.GRPC.Host != "" && cfg.GRPC.Port > 0 {
 		addr := net.JoinHostPort(cfg.GRPC.Host, strconv.Itoa(cfg.GRPC.Port))
@@ -144,11 +125,11 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return client, nil
 	}
 
-	bulkEndpoint := baseURL + "/_bulk"
+	bulkEndpoint := cfg.Address + "/_bulk"
 	if cfg.Index != "" {
-		bulkEndpoint = baseURL + "/" + cfg.Index + "/_bulk"
+		bulkEndpoint = cfg.Address + "/" + cfg.Index + "/_bulk"
 	}
-	bulkClient, err := http_client.NewClient(&http_client.ClientConfig{
+	bulkClient, err := http_client.NewClient(http_client.ClientConfig{
 		Endpoint:             bulkEndpoint,
 		ConnectionTimeout:    timeout,
 		AuthHeader:           authHeader,
@@ -160,6 +141,9 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return nil, fmt.Errorf("can't create bulk http client: %w", err)
 	}
 	client.httpClient = bulkClient
+
+	go client.runHealthChecks(ctx)
+
 	return client, nil
 }
 
@@ -167,6 +151,40 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 func (c *Client) Close() error {
 	if c.grpcConn != nil {
 		return c.grpcConn.Close()
+	}
+	return nil
+}
+
+func (c *Client) runHealthChecks(ctx context.Context) {
+	ticker := time.NewTicker(clusterHealthInterval)
+	defer ticker.Stop()
+
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := c.PingClusterHealth(ctx); err != nil {
+				slog.Warn("cluster health", slog.String("err", err.Error()))
+			}
+		}
+	}
+
+}
+
+// PingClusterHealth GETs /_cluster/health using
+func (c *Client) PingClusterHealth(ctx context.Context) error {
+	url := c.baseURL + "/_cluster/health"
+	timeout := timeoutFromContext(ctx, c.timeout)
+	if timeout > pingTimeoutLimit {
+		timeout = pingTimeoutLimit
+	}
+	code, err := c.pingClient.DoTimeout(url, http.MethodGet, "", nil, timeout, nil)
+	if err != nil {
+		return fmt.Errorf("%s cluster health: %w", c.name, err)
+	}
+	if code < http.StatusOK || code >= http.StatusBadRequest {
+		return fmt.Errorf("%s cluster health: status %d", c.name, code)
 	}
 	return nil
 }

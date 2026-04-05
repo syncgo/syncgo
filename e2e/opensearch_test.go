@@ -28,7 +28,7 @@ func newOpensearchClient(t *testing.T, ctrl *gomock.Controller, monitoring *mock
 
 	client, err := search_engine_client.New(context.Background(), search_engine_client.Config{
 		Name:              cfg.SearchEngine.Name,
-		Addresses:         cfg.SearchEngine.Addresses,
+		Address:           cfg.SearchEngine.Address,
 		Username:          cfg.SearchEngine.Username,
 		Password:          cfg.SearchEngine.Password,
 		Index:             cfg.SearchEngine.Index,

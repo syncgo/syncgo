@@ -23,7 +23,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const cancelTimeout = 30 * time.Second
+const (
+	cancelTimeout = 30 * time.Second
+)
 
 func main() {
 	ctx := context.Background()
@@ -74,7 +76,8 @@ func main() {
 
 func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.SearchMetrics) (*search_engine_client.Client, error) {
 	esClient, err := search_engine_client.New(ctx, search_engine_client.Config{
-		Addresses:         cfg.Addresses,
+		Name:              cfg.Name,
+		Address:           cfg.Address,
 		Username:          cfg.Username,
 		Password:          cfg.Password,
 		Index:             cfg.Index,

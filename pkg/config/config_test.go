@@ -16,29 +16,29 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with elasticsearch",
 			config: Config{
-				SearchEngine: SearchEngineConfig{Name: elasticsearch, Addresses: []string{"http://localhost:9200"}},
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
 			},
 			expectError: false,
 		},
 		{
 			name: "valid config with opensearch",
 			config: Config{
-				SearchEngine: SearchEngineConfig{Name: opensearch, Addresses: []string{"http://localhost:9300"}},
+				SearchEngine: SearchEngineConfig{Name: opensearch, Address: "http://localhost:9300"},
 			},
 			expectError: false,
 		},
 		{
 			name: "invalid config - opensearch with no addresses",
 			config: Config{
-				SearchEngine: SearchEngineConfig{Name: elasticsearch, Addresses: nil},
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: ""},
 			},
 			expectError: true,
-			errorMsg:    "must be configured at least one address",
+			errorMsg:    "address must be configured",
 		},
 		{
 			name: "no search engine name",
 			config: Config{
-				SearchEngine: SearchEngineConfig{Addresses: nil},
+				SearchEngine: SearchEngineConfig{Address: ""},
 			},
 			expectError: true,
 			errorMsg:    `search engine name should be "elasticsearh" or "opensearch"`,
@@ -50,6 +50,14 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    `search engine name should be "elasticsearh" or "opensearch"`,
+		},
+		{
+			name: "grpc for elastic",
+			config: Config{
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "test", GRPC: &OpenSearchGRPCConfig{Host: ""}},
+			},
+			expectError: true,
+			errorMsg:    `setup grpc only for opensearch`,
 		},
 	}
 
@@ -92,8 +100,7 @@ postgresql:
   database: testdb
 search_engine:
   name: elasticsearh
-  addresses:
-    - http://localhost:9200
+  address: http://localhost:9200
   username: admin
   password: secret
 `,
@@ -110,9 +117,7 @@ postgresql:
   database: mydb
 search_engine:
   name: opensearch
-  addresses:
-    - http://localhost:9300
-    - http://localhost:9301
+  address: http://localhost:9300
   username: opensearch
   password: opensearch123
   api_key: test-api-key
@@ -141,11 +146,9 @@ postgresql:
   port: "5432"
   database: testdb
 elasticsearch:
-  addresses:
-    - http://localhost:9200
+  address: http://localhost:9200
 opensearch:
-  addresses:
-    - http://localhost:9300
+  address: http://localhost:9300
 `,
 			expectError: true,
 			errorMsg:    "config validation failed",
@@ -180,8 +183,7 @@ postgresql:
   database: testdb
 search_engine:
   name: elasticsearh
-  addresses:
-    - http://localhost:9200
+  address: http://localhost:9200
   username: admin
   password: secret
 `,

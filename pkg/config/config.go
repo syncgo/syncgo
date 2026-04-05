@@ -48,7 +48,7 @@ type PostgreSQLConfig struct {
 // SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).
 type SearchEngineConfig struct {
 	Name              string                    `yaml:"name"`
-	Addresses         []string                  `yaml:"addresses"`
+	Address           string                    `yaml:"address"`
 	Username          string                    `yaml:"username"`
 	Password          string                    `yaml:"password"`
 	APIKey            string                    `yaml:"api_key"`
@@ -79,8 +79,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf(`search engine name should be "elasticsearh" or "opensearch"`)
 	}
 
-	if len(c.SearchEngine.Addresses) == 0 {
-		return fmt.Errorf("must be configured at least one address")
+	if len(c.SearchEngine.Address) == 0 {
+		return fmt.Errorf("address must be configured")
+	}
+
+	if c.SearchEngine.GRPC != nil && c.SearchEngine.Name != opensearch {
+		return fmt.Errorf("setup grpc only for opensearch")
 	}
 
 	return nil

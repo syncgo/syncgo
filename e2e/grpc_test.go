@@ -32,7 +32,7 @@ func TestGRPC(t *testing.T) {
 
 	client, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Name:              cfg.SearchEngine.Name,
-		Addresses:         cfg.SearchEngine.Addresses,
+		Address:           cfg.SearchEngine.Address,
 		Username:          cfg.SearchEngine.Username,
 		Password:          cfg.SearchEngine.Password,
 		Index:             cfg.SearchEngine.Index,

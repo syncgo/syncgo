@@ -6,8 +6,7 @@ postgresql:
   database: pglogrepl
 search_engine:
   name: opensearch
-  addresses:
-    - http://localhost:9300
+  address: http://localhost:9300
   username: admin
   password: Op3nS3arch!
   index: test_index
