@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -17,6 +18,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid config with elasticsearch",
 			config: Config{
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+				Batcher:      BatcherConfig{Size: 100},
 			},
 			expectError: false,
 		},
@@ -24,6 +26,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid config with opensearch",
 			config: Config{
 				SearchEngine: SearchEngineConfig{Name: opensearch, Address: "http://localhost:9300"},
+				Batcher:      BatcherConfig{Size: 100},
 			},
 			expectError: false,
 		},
@@ -31,6 +34,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "invalid config - opensearch with no addresses",
 			config: Config{
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: ""},
+				Batcher:      BatcherConfig{Size: 100},
 			},
 			expectError: true,
 			errorMsg:    "address must be configured",
@@ -39,6 +43,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "no search engine name",
 			config: Config{
 				SearchEngine: SearchEngineConfig{Address: ""},
+				Batcher:      BatcherConfig{Size: 100},
 			},
 			expectError: true,
 			errorMsg:    `search engine name should be "elasticsearh" or "opensearch"`,
@@ -47,6 +52,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "wrong search engine name",
 			config: Config{
 				SearchEngine: SearchEngineConfig{Name: "test"},
+				Batcher:      BatcherConfig{Size: 100},
 			},
 			expectError: true,
 			errorMsg:    `search engine name should be "elasticsearh" or "opensearch"`,
@@ -55,9 +61,34 @@ func TestConfig_Validate(t *testing.T) {
 			name: "grpc for elastic",
 			config: Config{
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "test", GRPC: &OpenSearchGRPCConfig{Host: ""}},
+				Batcher:      BatcherConfig{Size: 100},
 			},
 			expectError: true,
 			errorMsg:    `setup grpc only for opensearch`,
+		},
+		{
+			name: "batcher size zero defaults to 100",
+			config: Config{
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+				Batcher:      BatcherConfig{Size: 0},
+			},
+			expectError: false,
+		},
+		{
+			name: "batcher size negative defaults to 100",
+			config: Config{
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+				Batcher:      BatcherConfig{Size: -1},
+			},
+			expectError: false,
+		},
+		{
+			name: "batcher flush interval zero defaults to 50ms",
+			config: Config{
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+				Batcher:      BatcherConfig{Size: 100, FlushInterval: 0},
+			},
+			expectError: false,
 		},
 	}
 
@@ -81,6 +112,22 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
+func TestConfig_BatcherDefaults(t *testing.T) {
+	cfg := &Config{
+		SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+		Batcher:      BatcherConfig{Size: 0, FlushInterval: 0},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Batcher.Size != 100 {
+		t.Errorf("expected default size 100, got %d", cfg.Batcher.Size)
+	}
+	if cfg.Batcher.FlushInterval != 50*time.Millisecond {
+		t.Errorf("expected default flush_interval 50ms, got %v", cfg.Batcher.FlushInterval)
+	}
+}
+
 func TestLoadFromYAML(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -99,10 +146,12 @@ postgresql:
   port: "5432"
   database: testdb
 search_engine:
-  name: elasticsearh
+  name: elasticsearch
   address: http://localhost:9200
   username: admin
   password: secret
+batcher:
+  size: 100
 `,
 			expectError: false,
 		},
@@ -121,6 +170,8 @@ search_engine:
   username: opensearch
   password: opensearch123
   api_key: test-api-key
+batcher:
+  size: 50
 `,
 			expectError: false,
 		},
@@ -182,10 +233,12 @@ postgresql:
   port: "5432"
   database: testdb
 search_engine:
-  name: elasticsearh
+  name: elasticsearch
   address: http://localhost:9200
   username: admin
   password: secret
+batcher:
+  size: 100
 `,
 			path:        "",
 			expectError: false,

@@ -10,3 +10,6 @@ search_engine:
   username: admin
   password: Op3nS3arch!
   index: test_index
+batcher:
+  size: 100
+  flush_interval: 50ms

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/romanchechyotkin/syncgo/internal/batcher"
 	"github.com/romanchechyotkin/syncgo/internal/replication"
 	"github.com/romanchechyotkin/syncgo/pkg/config"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
@@ -46,12 +47,14 @@ func main() {
 
 	monitoring := metrics.New()
 
-	esClient, err := initClient(initCtx, cfg.SearchEngine, monitoring)
+	client, err := initClient(initCtx, cfg.SearchEngine, monitoring)
 	if err != nil {
-		slog.Error("failed init elasticsearch connection", slog.String("err", err.Error()))
+		slog.Error("failed init search engine client connection", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
-	_ = esClient
+
+	b := initBatcher(ctx, cfg.Batcher, client)
+	_ = b
 
 	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg)
 	if err != nil {
@@ -74,10 +77,20 @@ func main() {
 	slog.Info("syncgo stopped successfully")
 }
 
+func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender) *batcher.Batcher {
+	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender)
+
+	slog.Info("batcher initialized",
+		slog.Int("size", cfg.Size),
+		slog.Duration("flush_interval", cfg.FlushInterval),
+	)
+
+	return b
+}
+
 func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.SearchMetrics) (*search_engine_client.Client, error) {
-	esClient, err := search_engine_client.New(ctx, search_engine_client.Config{
+	client, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Name:              cfg.Name,
-		Address:           cfg.Address,
 		Username:          cfg.Username,
 		Password:          cfg.Password,
 		Index:             cfg.Index,
@@ -87,11 +100,11 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
 	}, monitoring)
 	if err != nil {
-		slog.Error("failed to create elasticsearch client", slog.String("error", err.Error()))
+		slog.Error("failed to create search engine client", slog.String("error", err.Error()))
 		return nil, err
 	}
 
-	return esClient, nil
+	return client, nil
 }
 
 func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config) (*replication.LogicalReplicationConn, error) {

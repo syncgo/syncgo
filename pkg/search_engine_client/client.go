@@ -455,6 +455,28 @@ func (c *Client) CreateIndex(ctx context.Context, index string, body []byte) err
 	return nil
 }
 
+// DocumentExists checks whether a document with the given id exists in the client's index.
+// Uses HEAD /{index}/_doc/{id}: 200 = exists, 404 = not found.
+// Real-time, not subject to the refresh interval.
+func (c *Client) DocumentExists(ctx context.Context, id string) (bool, error) {
+	docPath := "/" + c.index + "/_doc/" + id
+	timeout := timeoutFromContext(ctx, c.timeout)
+
+	statusCode, err := c.httpClient.DoTimeout(docPath, http.MethodHead, "", nil, timeout, nil)
+	if err != nil {
+		return false, fmt.Errorf("%s document exists check failed: %w", c.name, err)
+	}
+
+	switch statusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s document exists returned unexpected status: %d", c.name, statusCode)
+	}
+}
+
 func (c *Client) GrpcIsConnected() bool {
 	return c.grpcConn != nil
 }

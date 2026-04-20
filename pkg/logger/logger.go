@@ -7,12 +7,12 @@ import (
 )
 
 func init() {
-	NewLogger()
+	newLogger()
 }
 
 const defaultLevel = slog.LevelDebug
 
-func NewLogger() {
+func newLogger() {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: configLevel(),
 	})

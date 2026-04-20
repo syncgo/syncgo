@@ -13,8 +13,11 @@ import (
 const (
 	defaultConfigPath = "config.yaml"
 
-	elasticsearch = "elasticsearh"
+	elasticsearch = "elasticsearch"
 	opensearch    = "opensearch"
+
+	defaultBatcherSize          = 100
+	defaultBatcherFlushInterval = 50 * time.Millisecond
 )
 
 // Config holds the complete application configuration
@@ -22,6 +25,7 @@ type Config struct {
 	PostgreSQL   PostgreSQLConfig   `yaml:"postgresql"`
 	SearchEngine SearchEngineConfig `yaml:"search_engine"`
 	Metrics      MetricsConfig      `yaml:"metrics"`
+	Batcher      BatcherConfig      `yaml:"batcher"`
 }
 
 // OpenSearchGRPCConfig holds gRPC connection settings for OpenSearch.
@@ -34,6 +38,15 @@ type OpenSearchGRPCConfig struct {
 type MetricsConfig struct {
 	// Port is the TCP port to expose /metrics on (e.g. 9090). If 0, metrics server is disabled.
 	Port int `yaml:"port"`
+}
+
+// BatcherConfig holds configuration for the internal batcher
+type BatcherConfig struct {
+	// Size is the maximum number of items buffered before a flush is triggered.
+	Size int `yaml:"size"`
+	// FlushInterval is how long the batcher waits without any flush before
+	// sending committed items automatically. 0 disables the timer-based flush.
+	FlushInterval time.Duration `yaml:"flush_interval"`
 }
 
 // PostgreSQLConfig holds PostgreSQL connection configuration
@@ -85,6 +98,14 @@ func (c *Config) Validate() error {
 
 	if c.SearchEngine.GRPC != nil && c.SearchEngine.Name != opensearch {
 		return fmt.Errorf("setup grpc only for opensearch")
+	}
+
+	if c.Batcher.Size <= 0 {
+		c.Batcher.Size = defaultBatcherSize
+	}
+
+	if c.Batcher.FlushInterval <= 0 {
+		c.Batcher.FlushInterval = defaultBatcherFlushInterval
 	}
 
 	return nil

@@ -13,3 +13,6 @@ search_engine:
   grpc:
     host: localhost
     port: 50051
+batcher:
+  size: 100
+  flush_interval: 50ms
