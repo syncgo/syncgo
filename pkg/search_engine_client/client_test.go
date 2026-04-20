@@ -12,7 +12,6 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	// Skip if no OpenSearch available (for CI, we'll use service containers)
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -20,10 +19,9 @@ func TestNew(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get test server address from environment or use default
 	osAddr := os.Getenv("OPENSEARCH_ADDRESS")
 	if osAddr == "" {
-		osAddr = "http://localhost:9300"
+		t.Skip("OPENSEARCH_ADDRESS not set, skipping integration test")
 	}
 
 	osUser := os.Getenv("OPENSEARCH_USER")
@@ -98,7 +96,7 @@ func TestNew_WithAPIKey(t *testing.T) {
 
 	osAddr := os.Getenv("OPENSEARCH_ADDRESS")
 	if osAddr == "" {
-		osAddr = "http://localhost:9300"
+		t.Skip("OPENSEARCH_ADDRESS not set, skipping integration test")
 	}
 
 	apiKey := os.Getenv("OPENSEARCH_API_KEY")

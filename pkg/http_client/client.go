@@ -2,6 +2,8 @@ package http_client
 
 import (
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
@@ -23,7 +25,7 @@ type ClientKeepAliveConfig struct {
 }
 
 type ClientConfig struct {
-	Endpoint             string
+	Host                 string
 	ConnectionTimeout    time.Duration
 	AuthHeader           string
 	CustomHeaders        map[string]string
@@ -34,7 +36,7 @@ type ClientConfig struct {
 
 type Client struct {
 	client               *fasthttp.Client
-	endpoint             *fasthttp.URI
+	host                 []byte
 	authHeader           string
 	customHeaders        map[string]string
 	gzipCompressionLevel int
@@ -64,14 +66,9 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		client.TLSConfig = b.Build()
 	}
 
-	uri := &fasthttp.URI{}
-	if err := uri.Parse(nil, []byte(cfg.Endpoint)); err != nil {
-		return nil, fmt.Errorf("can't parse endpoint %s: %w", cfg.Endpoint, err)
-	}
-
 	return &Client{
 		client:               client,
-		endpoint:             uri,
+		host:                 []byte(cfg.Host),
 		authHeader:           cfg.AuthHeader,
 		customHeaders:        cfg.CustomHeaders,
 		gzipCompressionLevel: gzip.ParseGzipCompressionLevel(cfg.GzipCompressionLevel),
@@ -79,10 +76,12 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 }
 
 // DoTimeout sends a request using the client's auth and TLS settings.
-// If rawURL is empty, the request is sent to the client's configured endpoint.
+// If endpoint is empty, the request is sent to the client's configured host.
+// If endpoint is an absolute URL (starts with http:// or https://), it is used as-is.
+// Otherwise endpoint is treated as a path (and optional query) relative to the configured host.
 // The caller is responsible for inspecting the returned status code.
 func (c *Client) DoTimeout(
-	rawURL, method, contentType string,
+	endpoint, method, contentType string,
 	body []byte,
 	timeout time.Duration,
 	processResponse func([]byte) error,
@@ -92,18 +91,15 @@ func (c *Client) DoTimeout(
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
-	endpoint := c.endpoint
-	if rawURL != "" {
-		endpoint = &fasthttp.URI{}
-		if err := endpoint.Parse(nil, []byte(rawURL)); err != nil {
-			return 0, fmt.Errorf("can't parse URL %s: %w", rawURL, err)
-		}
+	reqURI, err := c.buildURI(endpoint)
+	if err != nil {
+		return 0, err
 	}
 
-	c.prepareRequest(req, endpoint, method, contentType, body)
+	c.prepareRequest(req, reqURI, method, contentType, body)
 
 	if err := c.client.DoTimeout(req, resp, timeout); err != nil {
-		return 0, fmt.Errorf("can't send request to %s: %w", endpoint.String(), err)
+		return 0, fmt.Errorf("can't send request to %s: %w", reqURI.String(), err)
 	}
 
 	statusCode := resp.Header.StatusCode()
@@ -117,9 +113,63 @@ func (c *Client) DoTimeout(
 	return statusCode, nil
 }
 
-func (c *Client) prepareRequest(req *fasthttp.Request, endpoint *fasthttp.URI, method, contentType string, body []byte) {
-	req.SetURI(endpoint)
+func (c *Client) buildURI(endpoint string) (*fasthttp.URI, error) {
+	uri := &fasthttp.URI{}
+
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		if err := uri.Parse(nil, c.host); err != nil {
+			return nil, fmt.Errorf("can't parse host %s: %w", string(c.host), err)
+		}
+		return uri, nil
+	}
+
+	// Absolute URL overrides configured host.
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		if err := uri.Parse(nil, []byte(trimmed)); err != nil {
+			return nil, fmt.Errorf("can't parse URL %s: %w", trimmed, err)
+		}
+		return uri, nil
+	}
+
+	// Relative path/query appended to configured host (which may include scheme and base path).
+	if err := uri.Parse(nil, c.host); err != nil {
+		return nil, fmt.Errorf("can't parse host %s: %w", string(c.host), err)
+	}
+
+	rel := trimmed
+	// Treat endpoint as relative to base path even if it starts with '/'.
+	rel = strings.TrimPrefix(rel, "/")
+
+	endpointPath := rel
+	query := ""
+	if idx := strings.IndexByte(rel, '?'); idx >= 0 {
+		endpointPath = rel[:idx]
+		if idx+1 < len(rel) {
+			query = rel[idx+1:]
+		}
+	}
+
+	basePath := string(uri.Path())
+	joinedPath := path.Join(basePath, endpointPath)
+	if joinedPath == "" {
+		joinedPath = "/"
+	}
+	uri.SetPath(joinedPath)
+
+	if query != "" {
+		uri.SetQueryString(query)
+	} else {
+		uri.SetQueryString("")
+	}
+
+	return uri, nil
+}
+
+func (c *Client) prepareRequest(req *fasthttp.Request, uri *fasthttp.URI, method, contentType string, body []byte) {
+	req.SetURI(uri)
 	req.Header.SetMethod(method)
+
 	if contentType != "" {
 		req.Header.SetContentType(contentType)
 	}

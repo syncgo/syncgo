@@ -7,8 +7,72 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+func TestBuildURI(t *testing.T) {
+	cases := []struct {
+		name     string
+		host     string
+		endpoint string
+		wantURI  string
+	}{
+		{
+			name:     "empty endpoint uses host",
+			host:     "https://example.com",
+			endpoint: "",
+			wantURI:  "https://example.com/",
+		},
+		{
+			name:     "absolute endpoint overrides host",
+			host:     "https://example.com",
+			endpoint: "http://endpoint:3",
+			wantURI:  "http://endpoint:3/",
+		},
+		{
+			name:     "relative endpoint with leading slash",
+			host:     "https://example.com",
+			endpoint: "/v1/items",
+			wantURI:  "https://example.com/v1/items",
+		},
+		{
+			name:     "relative endpoint without leading slash",
+			host:     "https://example.com",
+			endpoint: "v1/items",
+			wantURI:  "https://example.com/v1/items",
+		},
+		{
+			name:     "query string preserved",
+			host:     "https://example.com/base",
+			endpoint: "/search?q=foo&limit=10",
+			wantURI:  "https://example.com/base/search?q=foo&limit=10",
+		},
+		{
+			name:     "host with trailing slash",
+			host:     "https://example.com/",
+			endpoint: "/v1/items",
+			wantURI:  "https://example.com/v1/items",
+		},
+		{
+			name:     "endpoint with spaces trimmed",
+			host:     "https://example.com",
+			endpoint: "   /v1/items   ",
+			wantURI:  "https://example.com/v1/items",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &Client{host: []byte(tt.host)}
+			uri, err := c.buildURI(tt.endpoint)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantURI, uri.String())
+		})
+	}
+}
+
 func TestPrepareRequest(t *testing.T) {
 	type inputData struct {
+		host                 []byte
 		endpoint             string
 		method               string
 		contentType          string
@@ -19,7 +83,6 @@ func TestPrepareRequest(t *testing.T) {
 	}
 
 	type wantData struct {
-		uri             string
 		method          []byte
 		contentType     []byte
 		contentEncoding []byte
@@ -35,23 +98,24 @@ func TestPrepareRequest(t *testing.T) {
 		{
 			name: "simple",
 			in: inputData{
-				endpoint:             "http://endpoint:1",
+				host:                 []byte("https://example.com"),
+				endpoint:             "/1",
 				method:               fasthttp.MethodPost,
 				contentType:          "application/json",
 				body:                 "test simple",
 				gzipCompressionLevel: -1,
 			},
 			want: wantData{
-				uri:         "http://endpoint:1/",
 				method:      []byte(fasthttp.MethodPost),
 				contentType: []byte("application/json"),
 				body:        []byte("test simple"),
 			},
 		},
 		{
-			name: "auth",
+			name: "auth header",
 			in: inputData{
-				endpoint:             "http://endpoint:3",
+				host:                 []byte("https://example.com"),
+				endpoint:             "/1",
 				method:               fasthttp.MethodPost,
 				contentType:          "application/json",
 				body:                 "test auth",
@@ -59,7 +123,6 @@ func TestPrepareRequest(t *testing.T) {
 				gzipCompressionLevel: -1,
 			},
 			want: wantData{
-				uri:         "http://endpoint:3/",
 				method:      []byte(fasthttp.MethodPost),
 				contentType: []byte("application/json"),
 				body:        []byte("test auth"),
@@ -69,7 +132,8 @@ func TestPrepareRequest(t *testing.T) {
 		{
 			name: "custom headers",
 			in: inputData{
-				endpoint:    "http://endpoint:3",
+				host:        []byte("https://example.com"),
+				endpoint:    "/1",
 				method:      fasthttp.MethodPost,
 				contentType: "application/json",
 				body:        "test auth",
@@ -80,25 +144,23 @@ func TestPrepareRequest(t *testing.T) {
 				gzipCompressionLevel: -1,
 			},
 			want: wantData{
-				uri:         "http://endpoint:3/",
 				method:      []byte(fasthttp.MethodPost),
 				contentType: []byte("application/json"),
 				body:        []byte("test auth"),
 				auth:        []byte("Auth Header"),
 			},
 		},
-
 		{
 			name: "gzip",
 			in: inputData{
-				endpoint:             "http://endpoint:4",
+				host:                 []byte("http://endpoint:4"),
+				endpoint:             "",
 				method:               fasthttp.MethodPost,
 				contentType:          "application/json",
 				body:                 "test gzip",
 				gzipCompressionLevel: 1,
 			},
 			want: wantData{
-				uri:             "http://endpoint:4/",
 				method:          []byte(fasthttp.MethodPost),
 				contentType:     []byte("application/json"),
 				contentEncoding: []byte(gzipContentEncoding),
@@ -111,6 +173,7 @@ func TestPrepareRequest(t *testing.T) {
 			t.Parallel()
 
 			c := &Client{
+				host:                 tt.in.host,
 				authHeader:           tt.in.authHeader,
 				gzipCompressionLevel: tt.in.gzipCompressionLevel,
 				customHeaders:        tt.in.customHeaders,
@@ -119,14 +182,11 @@ func TestPrepareRequest(t *testing.T) {
 			req := fasthttp.AcquireRequest()
 			defer fasthttp.ReleaseRequest(req)
 
-			uri := &fasthttp.URI{}
-			if err := uri.Parse(nil, []byte(tt.in.endpoint)); err != nil {
-				require.NoError(t, err)
-			}
+			uri, err := c.buildURI(tt.in.endpoint)
+			require.NoError(t, err)
 
 			c.prepareRequest(req, uri, tt.in.method, tt.in.contentType, []byte(tt.in.body))
 
-			require.Equal(t, tt.want.uri, req.URI().String(), "wrong uri")
 			require.Equal(t, tt.want.method, req.Header.Method(), "wrong method")
 			require.Equal(t, tt.want.contentType, req.Header.ContentType(), "wrong content type")
 			require.Equal(t, tt.want.contentEncoding, req.Header.ContentEncoding(), "wrong content encoding")

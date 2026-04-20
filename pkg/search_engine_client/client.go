@@ -58,14 +58,14 @@ type Monitoring interface {
 }
 
 type Client struct {
-	name    string
-	baseURL string
+	name     string
+	baseURL  string
+	bulkPath string
 
-	pingClient *http_client.Client
 	httpClient *http_client.Client
 
-	docClient opensearchpb.DocumentServiceClient
 	grpcConn  *grpc.ClientConn
+	docClient opensearchpb.DocumentServiceClient
 
 	index   string
 	timeout time.Duration
@@ -97,8 +97,8 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		timeout = defaultConnTimeout
 	}
 
-	pingClient, err := http_client.NewClient(http_client.ClientConfig{
-		Endpoint:             cfg.Address,
+	httpClient, err := http_client.NewClient(http_client.ClientConfig{
+		Host:                 cfg.Address,
 		ConnectionTimeout:    timeout,
 		AuthHeader:           authHeader,
 		GzipCompressionLevel: cfg.GzipCompression,
@@ -109,9 +109,22 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return nil, fmt.Errorf("can't create http client: %w", err)
 	}
 
+	// Validate connectivity early (and make "invalid address" errors deterministic for callers).
+	pingTimeout := pingTimeoutLimit
+	if timeout < pingTimeout {
+		pingTimeout = timeout
+	}
+	code, err := httpClient.DoTimeout("/_cluster/health", http.MethodGet, "", nil, pingTimeout, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s ping failed: %w", cfg.Name, err)
+	}
+	if code < http.StatusOK || code >= http.StatusBadRequest {
+		return nil, fmt.Errorf("%s ping failed with status: %d", cfg.Name, code)
+	}
+
 	slog.Debug(fmt.Sprintf("%s connection established successfully", cfg.Name))
 
-	client := &Client{name: cfg.Name, baseURL: cfg.Address, pingClient: pingClient, index: cfg.Index, timeout: timeout, monitoring: monitoring}
+	client := &Client{name: cfg.Name, baseURL: cfg.Address, httpClient: httpClient, index: cfg.Index, timeout: timeout, monitoring: monitoring}
 
 	if cfg.GRPC != nil && cfg.GRPC.Host != "" && cfg.GRPC.Port > 0 {
 		addr := net.JoinHostPort(cfg.GRPC.Host, strconv.Itoa(cfg.GRPC.Port))
@@ -125,12 +138,12 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return client, nil
 	}
 
-	bulkEndpoint := cfg.Address + "/_bulk"
+	bulkEndpoint := "/_bulk"
 	if cfg.Index != "" {
-		bulkEndpoint = cfg.Address + "/" + cfg.Index + "/_bulk"
+		bulkEndpoint = "/" + cfg.Index + "/_bulk"
 	}
 	bulkClient, err := http_client.NewClient(http_client.ClientConfig{
-		Endpoint:             bulkEndpoint,
+		Host:                 cfg.Address,
 		ConnectionTimeout:    timeout,
 		AuthHeader:           authHeader,
 		GzipCompressionLevel: cfg.GzipCompression,
@@ -141,6 +154,7 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return nil, fmt.Errorf("can't create bulk http client: %w", err)
 	}
 	client.httpClient = bulkClient
+	client.bulkPath = bulkEndpoint
 
 	go client.runHealthChecks(ctx)
 
@@ -174,12 +188,11 @@ func (c *Client) runHealthChecks(ctx context.Context) {
 
 // PingClusterHealth GETs /_cluster/health using
 func (c *Client) PingClusterHealth(ctx context.Context) error {
-	url := c.baseURL + "/_cluster/health"
 	timeout := timeoutFromContext(ctx, c.timeout)
 	if timeout > pingTimeoutLimit {
 		timeout = pingTimeoutLimit
 	}
-	code, err := c.pingClient.DoTimeout(url, http.MethodGet, "", nil, timeout, nil)
+	code, err := c.httpClient.DoTimeout("/_cluster/health", http.MethodGet, "", nil, timeout, nil)
 	if err != nil {
 		return fmt.Errorf("%s cluster health: %w", c.name, err)
 	}
@@ -224,7 +237,7 @@ func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload
 	var indexingErrors int
 	body := data.Bytes()
 	statusCode, err := c.httpClient.DoTimeout(
-		"",
+		c.bulkPath,
 		http.MethodPost,
 		contentTypeNDJSON,
 		body,
@@ -402,10 +415,9 @@ func (c *Client) reportOSErrors(data []byte) int {
 // Uses HEAD /{index} — identical API for both Elasticsearch and OpenSearch.
 // Returns (true, nil) if the index exists, (false, nil) if it does not, or (false, error) on failure.
 func (c *Client) IndexExists(ctx context.Context, index string) (bool, error) {
-	url := c.baseURL + "/" + index
 	timeout := timeoutFromContext(ctx, c.timeout)
 
-	statusCode, err := c.pingClient.DoTimeout(url, http.MethodHead, "", nil, timeout, nil)
+	statusCode, err := c.httpClient.DoTimeout("/"+index, http.MethodHead, "", nil, timeout, nil)
 	if err != nil {
 		return false, fmt.Errorf("%s index exists check failed: %w", c.name, err)
 	}
@@ -424,7 +436,6 @@ func (c *Client) IndexExists(ctx context.Context, index string) (bool, error) {
 // Uses PUT /{index} — identical API for both Elasticsearch and OpenSearch.
 // body may be nil to create an index with default settings.
 func (c *Client) CreateIndex(ctx context.Context, index string, body []byte) error {
-	url := c.baseURL + "/" + index
 	timeout := timeoutFromContext(ctx, c.timeout)
 
 	contentType := ""
@@ -432,7 +443,7 @@ func (c *Client) CreateIndex(ctx context.Context, index string, body []byte) err
 		contentType = "application/json"
 	}
 
-	statusCode, err := c.pingClient.DoTimeout(url, http.MethodPut, contentType, body, timeout, nil)
+	statusCode, err := c.httpClient.DoTimeout("/"+index, http.MethodPut, contentType, body, timeout, nil)
 	if err != nil {
 		return fmt.Errorf("%s create index failed: %w", c.name, err)
 	}
