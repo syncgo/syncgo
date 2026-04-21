@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	asynctask "github.com/romanchechyotkin/syncgo/pkg/async_task"
 	"github.com/romanchechyotkin/syncgo/pkg/gzip"
 	"github.com/romanchechyotkin/syncgo/pkg/http_client"
 	"github.com/syncgo/opensearchpb"
@@ -71,6 +72,7 @@ type Client struct {
 	timeout time.Duration
 
 	monitoring Monitoring
+	healthTask *asynctask.AsyncTask
 }
 
 func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error) {
@@ -156,7 +158,12 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 	client.httpClient = bulkClient
 	client.bulkPath = bulkEndpoint
 
-	go client.runHealthChecks(ctx)
+	client.healthTask = asynctask.New(clusterHealthInterval, func(ctx context.Context) {
+		if err := client.PingClusterHealth(ctx); err != nil {
+			slog.Error("failed to ping cluster health", slog.String("err", err.Error()))
+		}
+	})
+	client.healthTask.Start(ctx)
 
 	return client, nil
 }
@@ -166,24 +173,12 @@ func (c *Client) Close() error {
 	if c.grpcConn != nil {
 		return c.grpcConn.Close()
 	}
-	return nil
-}
 
-func (c *Client) runHealthChecks(ctx context.Context) {
-	ticker := time.NewTicker(clusterHealthInterval)
-	defer ticker.Stop()
-
-	for ctx.Err() == nil {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := c.PingClusterHealth(ctx); err != nil {
-				slog.Warn("cluster health", slog.String("err", err.Error()))
-			}
-		}
+	if c.healthTask != nil {
+		c.healthTask.Stop()
 	}
 
+	return nil
 }
 
 // PingClusterHealth GETs /_cluster/health using
@@ -192,13 +187,29 @@ func (c *Client) PingClusterHealth(ctx context.Context) error {
 	if timeout > pingTimeoutLimit {
 		timeout = pingTimeoutLimit
 	}
-	code, err := c.httpClient.DoTimeout("/_cluster/health", http.MethodGet, "", nil, timeout, nil)
+
+	code, err := c.httpClient.DoTimeout("/_cluster/health", http.MethodGet, "", nil, timeout, func(b []byte) error {
+		var response struct {
+			Status string `json:"status"`
+		}
+
+		if err := json.Unmarshal(b, &response); err != nil {
+			slog.Error("failed to unmarshal", slog.String("error", err.Error()))
+			return err
+		}
+
+		slog.Debug("cluster healthcheck status", slog.String("status", response.Status))
+
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("%s cluster health: %w", c.name, err)
 	}
+
 	if code < http.StatusOK || code >= http.StatusBadRequest {
 		return fmt.Errorf("%s cluster health: status %d", c.name, code)
 	}
+
 	return nil
 }
 

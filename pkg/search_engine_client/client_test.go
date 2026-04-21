@@ -454,6 +454,7 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"green"}`))
 		}))
 		defer srv.Close()
 		pingC := mustHTTPClient(t, srv.URL)
@@ -467,6 +468,7 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("timeout clamped to pingTimeoutLimit", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"green"}`))
 		}))
 		defer srv.Close()
 		pingC := mustHTTPClient(t, srv.URL)
@@ -481,6 +483,7 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("bad status", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"green"}`))
 		}))
 		defer srv.Close()
 		pingC := mustHTTPClient(t, srv.URL)
@@ -491,7 +494,9 @@ func TestPingClusterHealth(t *testing.T) {
 	})
 
 	t.Run("network error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"status":"green"}`))
+		}))
 		addr := srv.URL
 		srv.Close()
 		pingC := mustHTTPClient(t, addr)
@@ -758,48 +763,6 @@ func TestCreateIndex(t *testing.T) {
 			t.Error("expected error for network error")
 		}
 	})
-}
-
-// --- runHealthChecks ---
-
-func TestRunHealthChecks_PreCancelled(t *testing.T) {
-	pingC := mustHTTPClient(t, "http://localhost")
-	c := &Client{name: "test", baseURL: "http://localhost", httpClient: pingC, timeout: time.Second}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	done := make(chan struct{})
-	go func() { c.runHealthChecks(ctx); close(done) }()
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Error("runHealthChecks did not exit for pre-cancelled context")
-	}
-}
-
-func TestRunHealthChecks_CancelDuringSelect(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	pingC := mustHTTPClient(t, srv.URL)
-	c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: time.Second}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { c.runHealthChecks(ctx); close(done) }()
-
-	time.Sleep(10 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Error("runHealthChecks did not exit after context cancel")
-	}
 }
 
 // --- Integration tests (require running OpenSearch/Elasticsearch) ---
