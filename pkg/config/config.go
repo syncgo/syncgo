@@ -57,8 +57,9 @@ type PostgreSQLConfig struct {
 	Port     string `yaml:"port"`
 	Database string `yaml:"database"`
 
-	SlotName string `yaml:"slot_name"`
-	IDColumn string `yaml:"id_column"`
+	PublicationName string `yaml:"publication_name"`
+	SlotName        string `yaml:"slot_name"`
+	IDColumn        string `yaml:"id_column"`
 }
 
 // SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).
@@ -112,7 +113,11 @@ func (c *Config) Validate() error {
 	}
 
 	if c.PostgreSQL.SlotName == "" {
-		c.PostgreSQL.SlotName = "pglogrepl_demo"
+		return fmt.Errorf("postgresql.slot_name is required")
+	}
+
+	if c.PostgreSQL.PublicationName == "" {
+		return fmt.Errorf("postgresql.publication_name is required")
 	}
 
 	if c.PostgreSQL.IDColumn == "" {

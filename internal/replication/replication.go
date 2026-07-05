@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -23,8 +24,10 @@ type RowBatcher interface {
 }
 
 type LogicalRepicationConfig struct {
-	SlotName string
-	IDColumn string
+	PublicationName string
+	SlotName        string
+	IDColumn        string
+	DB              postgresql.Config
 }
 
 type LogicalReplicationConn struct {
@@ -57,6 +60,10 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		replicationConn.idColumn = "id"
 	}
 
+	if err := replicationConn.validateReplicationSetup(ctx, cfg); err != nil {
+		return nil, err
+	}
+
 	// if err := replicationConn.dropPublication(ctx); err != nil {
 	// 	return nil, err
 	// }
@@ -81,10 +88,6 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		slog.String("xLogPos", sysident.XLogPos.String()),
 		slog.String("dbName", sysident.DBName),
 	)
-
-	if err := replicationConn.createReplicationSlot(ctx, replicationConn.slotName, true); err != nil {
-		return nil, err
-	}
 
 	return replicationConn, nil
 }
@@ -266,6 +269,36 @@ func (c *LogicalReplicationConn) sendStandbyStatusUpdate(ctx context.Context, cl
 	}
 
 	slog.Debug("sent standby status update", slog.Any("walWritePosition", clientXLogPos))
+
+	return nil
+}
+
+func (c *LogicalReplicationConn) validateReplicationSetup(ctx context.Context, cfg LogicalRepicationConfig) error {
+	adminConn, err := postgresql.NewStandard(ctx, cfg.DB)
+	if err != nil {
+		return fmt.Errorf("failed to connect for replication setup validation: %w", err)
+	}
+	defer func() {
+		if closeErr := adminConn.Close(ctx); closeErr != nil {
+			slog.Error("failed to close admin connection", slog.String("err", closeErr.Error()))
+		}
+	}()
+
+	slotExists, err := postgresql.ReplicationSlotExists(ctx, adminConn, cfg.SlotName)
+	if err != nil {
+		return fmt.Errorf("failed to check replication slot %q: %w", cfg.SlotName, err)
+	}
+	if !slotExists {
+		return fmt.Errorf("replication slot %q does not exist", cfg.SlotName)
+	}
+
+	pubExists, err := postgresql.PublicationExists(ctx, adminConn, cfg.PublicationName)
+	if err != nil {
+		return fmt.Errorf("failed to check publication %q: %w", cfg.PublicationName, err)
+	}
+	if !pubExists {
+		return fmt.Errorf("publication %q does not exist", cfg.PublicationName)
+	}
 
 	return nil
 }

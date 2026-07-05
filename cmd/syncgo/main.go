@@ -113,21 +113,25 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 }
 
 func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config, b *batcher.Batcher) (*replication.LogicalReplicationConn, error) {
-	conn, err := postgresql.New(ctx, postgresql.Config{
+	pgCfg := postgresql.Config{
 		User:     cfg.PostgreSQL.User,
 		Password: cfg.PostgreSQL.Password,
 		Host:     cfg.PostgreSQL.Host,
 		Port:     cfg.PostgreSQL.Port,
 		Database: cfg.PostgreSQL.Database,
-	})
+	}
+
+	conn, err := postgresql.New(ctx, pgCfg)
 	if err != nil {
 		slog.Error("failed to create postgresql connection", slog.String("error", err.Error()))
 		return nil, err
 	}
 
 	return replication.New(ctx, replication.LogicalRepicationConfig{
-		SlotName: cfg.PostgreSQL.SlotName,
-		IDColumn: cfg.PostgreSQL.IDColumn,
+		PublicationName: cfg.PostgreSQL.PublicationName,
+		SlotName:        cfg.PostgreSQL.SlotName,
+		IDColumn:        cfg.PostgreSQL.IDColumn,
+		DB:              pgCfg,
 	}, conn, b)
 }
 

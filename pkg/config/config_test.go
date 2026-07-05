@@ -17,6 +17,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with elasticsearch",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
 				Batcher:      BatcherConfig{Size: 100},
 			},
@@ -25,6 +26,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with opensearch",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: opensearch, Address: "http://localhost:9300"},
 				Batcher:      BatcherConfig{Size: 100},
 			},
@@ -33,6 +35,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid config - opensearch with no addresses",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: ""},
 				Batcher:      BatcherConfig{Size: 100},
 			},
@@ -42,6 +45,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "no search engine name",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Address: ""},
 				Batcher:      BatcherConfig{Size: 100},
 			},
@@ -51,6 +55,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "wrong search engine name",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: "test"},
 				Batcher:      BatcherConfig{Size: 100},
 			},
@@ -60,6 +65,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "grpc for elastic",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "test", GRPC: &OpenSearchGRPCConfig{Host: ""}},
 				Batcher:      BatcherConfig{Size: 100},
 			},
@@ -69,6 +75,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "batcher size zero defaults to 100",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
 				Batcher:      BatcherConfig{Size: 0},
 			},
@@ -77,6 +84,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "batcher size negative defaults to 100",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
 				Batcher:      BatcherConfig{Size: -1},
 			},
@@ -85,10 +93,31 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "batcher flush interval zero defaults to 50ms",
 			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test", PublicationName: "pglogrepl_demo"},
 				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
 				Batcher:      BatcherConfig{Size: 100, FlushInterval: 0},
 			},
 			expectError: false,
+		},
+		{
+			name: "missing slot_name",
+			config: Config{
+				PostgreSQL:   PostgreSQLConfig{PublicationName: "pglogrepl_demo"},
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+				Batcher:      BatcherConfig{Size: 100},
+			},
+			expectError: true,
+			errorMsg:    "postgresql.slot_name is required",
+		},
+		{
+			name: "missing publication_name",
+			config: Config{
+				PostgreSQL:   PostgreSQLConfig{SlotName: "test"},
+				SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+				Batcher:      BatcherConfig{Size: 100},
+			},
+			expectError: true,
+			errorMsg:    "postgresql.publication_name is required",
 		},
 	}
 
@@ -114,6 +143,7 @@ func TestConfig_Validate(t *testing.T) {
 
 func TestConfig_BatcherDefaults(t *testing.T) {
 	cfg := &Config{
+		PostgreSQL:   PostgreSQLConfig{SlotName: "wasd", PublicationName: "wasd"},
 		SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
 		Batcher:      BatcherConfig{Size: 0, FlushInterval: 0},
 	}
@@ -145,6 +175,8 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
+  slot_name: test
+  publication_name: pglogrepl_demo
 search_engine:
   name: elasticsearch
   address: http://localhost:9200
@@ -164,6 +196,8 @@ postgresql:
   host: db.example.com
   port: "5432"
   database: mydb
+  slot_name: test
+  publication_name: pglogrepl_demo
 search_engine:
   name: opensearch
   address: http://localhost:9300
@@ -232,6 +266,8 @@ postgresql:
   host: localhost
   port: "5432"
   database: testdb
+  slot_name: test
+  publication_name: pglogrepl_demo
 search_engine:
   name: elasticsearch
   address: http://localhost:9200
