@@ -8,11 +8,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type RowBatcher interface {
+	Add(item bulk_transformer.Data)
+	CommitN(n int)
+	RollbackN(n int)
+}
+
+type LogicalRepicationConfig struct {
+	SlotName string
+	IDColumn string
+}
 
 type LogicalReplicationConn struct {
 	wg sync.WaitGroup
@@ -20,26 +33,28 @@ type LogicalReplicationConn struct {
 	conn     *pgconn.PgConn
 	slotName string
 
-	plugin         Plugin // пока pgoutput only
-	pluginArgs     []string
-	inStream       bool
-	v2             bool // пока только v1
-	primaryLogging bool
+	plugin     string
+	pluginArgs []string
 
 	xLogPos               pglogrepl.LSN
+	txn                   txnTracker
 	standbyMessageTimeout time.Duration
+	idColumn              string
+
+	batcher RowBatcher
 }
 
-func New(ctx context.Context, conn *pgconn.PgConn) (*LogicalReplicationConn, error) {
+func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, batcher RowBatcher) (*LogicalReplicationConn, error) {
 	replicationConn := &LogicalReplicationConn{
 		wg:                    sync.WaitGroup{},
 		conn:                  conn,
-		slotName:              "pglogrepl_demo",
-		plugin:                pgOutputPlugin,
-		v2:                    false,
-		inStream:              false,
-		primaryLogging:        false,
+		slotName:              cfg.SlotName,
 		standbyMessageTimeout: time.Second * 10,
+		batcher:               batcher,
+	}
+
+	if cfg.IDColumn == "" {
+		replicationConn.idColumn = "id"
 	}
 
 	// if err := replicationConn.dropPublication(ctx); err != nil {
@@ -50,15 +65,8 @@ func New(ctx context.Context, conn *pgconn.PgConn) (*LogicalReplicationConn, err
 	// 	return nil, err
 	// }
 
-	switch replicationConn.plugin {
-	case pgOutputPlugin:
-		replicationConn.pluginArgs = []string{
-			"proto_version '1'",
-			"publication_names 'pglogrepl_demo'",
-			"messages 'true'",
-			"streaming 'false'", // untill v2 support
-		}
-	}
+	replicationConn.plugin = "pgoutput"
+	replicationConn.pluginArgs = replicationConn.buildPluginArgs()
 
 	sysident, err := pglogrepl.IdentifySystem(ctx, conn)
 	if err != nil {
@@ -81,6 +89,14 @@ func New(ctx context.Context, conn *pgconn.PgConn) (*LogicalReplicationConn, err
 	return replicationConn, nil
 }
 
+func (c *LogicalReplicationConn) buildPluginArgs() []string {
+	return []string{
+		"proto_version '1'",
+		"publication_names 'pglogrepl_demo'",
+		"messages 'false'",
+	}
+}
+
 func (c *LogicalReplicationConn) StartReplication(ctx context.Context) error {
 	if err := c.startReplication(ctx, c.slotName, c.xLogPos, c.pluginArgs); err != nil {
 		return err
@@ -88,11 +104,10 @@ func (c *LogicalReplicationConn) StartReplication(ctx context.Context) error {
 
 	clientXLogPos := c.xLogPos
 	relations := map[uint32]*pglogrepl.RelationMessage{}
-	relationsV2 := map[uint32]*pglogrepl.RelationMessageV2{}
 	typeMap := pgtype.NewMap()
 
 	c.wg.Go(func() {
-		if err := c.readReplicationMessages(ctx, clientXLogPos, relations, relationsV2, typeMap); err != nil {
+		if err := c.readReplicationMessages(ctx, clientXLogPos, relations, typeMap); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				slog.Error("failed to read replication messages", slog.String("err", err.Error()))
 			}
@@ -129,7 +144,7 @@ func (c *LogicalReplicationConn) Close() error {
 //}
 
 func (c *LogicalReplicationConn) createReplicationSlot(ctx context.Context, slotName string, temporary bool) error {
-	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin.String(), pglogrepl.CreateReplicationSlotOptions{Temporary: temporary})
+	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin, pglogrepl.CreateReplicationSlotOptions{Temporary: temporary})
 	if err != nil {
 		slog.Error("failed to create slot", slog.String("err", err.Error()))
 		return err
@@ -161,7 +176,7 @@ func (c *LogicalReplicationConn) startReplication(ctx context.Context, slotName 
 // 	return nil
 // }
 
-func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, clientXLogPos pglogrepl.LSN, relations map[uint32]*pglogrepl.RelationMessage, relationsV2 map[uint32]*pglogrepl.RelationMessageV2, typeMap *pgtype.Map) error {
+func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, clientXLogPos pglogrepl.LSN, relations map[uint32]*pglogrepl.RelationMessage, typeMap *pgtype.Map) error {
 	standbyStatusTicker := time.NewTicker(c.standbyMessageTimeout)
 	defer standbyStatusTicker.Stop()
 
@@ -205,13 +220,11 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 					slog.Error("failed to parse primary keepalive message", slog.String("err", err.Error()))
 					return err
 				}
-				if c.primaryLogging {
-					slog.Debug("primary keepalive message",
-						slog.String("serverWALEnd", pkm.ServerWALEnd.String()),
-						slog.Time("serverTime", pkm.ServerTime),
-						slog.Bool("replyRequested", pkm.ReplyRequested),
-					)
-				}
+				slog.Debug("primary keepalive message",
+					slog.String("serverWALEnd", pkm.ServerWALEnd.String()),
+					slog.Time("serverTime", pkm.ServerTime),
+					slog.Bool("replyRequested", pkm.ReplyRequested),
+				)
 				if pkm.ServerWALEnd > clientXLogPos {
 					clientXLogPos = pkm.ServerWALEnd
 				}
@@ -233,11 +246,8 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 					slog.String("serverWALEnd", xld.ServerWALEnd.String()),
 					slog.Time("serverTime", xld.ServerTime),
 				)
-				if c.v2 {
-					processV2(xld.WALData, relationsV2, typeMap, &c.inStream)
-				} else {
-					processV1(xld.WALData, relations, typeMap)
-				}
+
+				c.process(xld.WALData, relations, typeMap)
 
 				if xld.WALStart > clientXLogPos {
 					clientXLogPos = xld.WALStart

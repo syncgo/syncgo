@@ -4,6 +4,9 @@ postgresql:
   host: localhost
   port: 5432
   database: pglogrepl
+
+  slot_name: "test"
+  id_column: id
 # Use either elasticsearch or opensearch (exactly one required)
 search_engine:
   name: elasticsearch

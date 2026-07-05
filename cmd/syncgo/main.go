@@ -54,9 +54,8 @@ func main() {
 	}
 
 	b := initBatcher(ctx, cfg.Batcher, client)
-	_ = b
 
-	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg)
+	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg, b)
 	if err != nil {
 		slog.Error("failed init postgresql connection", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -68,6 +67,11 @@ func main() {
 		slog.Error("failed to start replication", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
+
+	<-ctx.Done()
+	slog.Info("shutdown signal received")
+
+	b.Flush()
 
 	if err := replicationConn.Close(); err != nil {
 		slog.Error("failed to close connection", slog.String("err", err.Error()))
@@ -91,6 +95,7 @@ func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.B
 func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.SearchMetrics) (*search_engine_client.Client, error) {
 	client, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Name:              cfg.Name,
+		Address:           cfg.Address,
 		Username:          cfg.Username,
 		Password:          cfg.Password,
 		Index:             cfg.Index,
@@ -107,7 +112,7 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 	return client, nil
 }
 
-func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config) (*replication.LogicalReplicationConn, error) {
+func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config, b *batcher.Batcher) (*replication.LogicalReplicationConn, error) {
 	conn, err := postgresql.New(ctx, postgresql.Config{
 		User:     cfg.PostgreSQL.User,
 		Password: cfg.PostgreSQL.Password,
@@ -120,7 +125,10 @@ func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config) (*re
 		return nil, err
 	}
 
-	return replication.New(ctx, conn)
+	return replication.New(ctx, replication.LogicalRepicationConfig{
+		SlotName: cfg.PostgreSQL.SlotName,
+		IDColumn: cfg.PostgreSQL.IDColumn,
+	}, conn, b)
 }
 
 func searchTLSToClient(t *config.SearchTLSConfig) *http_client.ClientTLSConfig {

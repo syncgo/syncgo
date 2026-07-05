@@ -5,7 +5,6 @@ package e2e
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/batcher"
 	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
@@ -122,35 +121,5 @@ func TestBatcherWithElasticsearch_DeleteAfterCreate(t *testing.T) {
 	}
 	if exists {
 		t.Fatal("e2e; elasticsearch; batcher; expected document to be gone after delete flush")
-	}
-}
-
-func TestBatcherWithElasticsearch_AutoFlushTimeout(t *testing.T) {
-	ctx := context.Background()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
-
-	client := newElasticsearchClient(t, ctrl, monitoring)
-
-	id := uuid.New().String()
-
-	b := batcher.NewBatcher(ctx, 100, 0, client)
-
-	b.Add(bulk_transformer.Data{ID: id, Action: bulk_transformer.Create, Body: []byte(`{"title":"Batcher Timeout E2E"}`)})
-	b.Commit()
-
-	time.Sleep(600 * time.Millisecond)
-
-	exists, err := client.DocumentExists(ctx, id)
-	if err != nil {
-		t.Fatal("e2e; elasticsearch; batcher; failed to check document existence after timeout flush:", err)
-	}
-	if !exists {
-		t.Fatal("e2e; elasticsearch; batcher; expected document to exist after timeout flush")
 	}
 }

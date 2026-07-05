@@ -56,6 +56,9 @@ type PostgreSQLConfig struct {
 	Host     string `yaml:"host"`
 	Port     string `yaml:"port"`
 	Database string `yaml:"database"`
+
+	SlotName string `yaml:"slot_name"`
+	IDColumn string `yaml:"id_column"`
 }
 
 // SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).
@@ -106,6 +109,14 @@ func (c *Config) Validate() error {
 
 	if c.Batcher.FlushInterval <= 0 {
 		c.Batcher.FlushInterval = defaultBatcherFlushInterval
+	}
+
+	if c.PostgreSQL.SlotName == "" {
+		c.PostgreSQL.SlotName = "pglogrepl_demo"
+	}
+
+	if c.PostgreSQL.IDColumn == "" {
+		c.PostgreSQL.IDColumn = "id"
 	}
 
 	return nil

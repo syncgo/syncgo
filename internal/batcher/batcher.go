@@ -85,6 +85,14 @@ func (b *Batcher) Add(item bulk_transformer.Data) {
 	b.buffer = append(b.buffer, item)
 }
 
+// CommitN calls Commit method n times
+// Commit order must match Add order.
+func (b *Batcher) CommitN(n int) {
+	for i := 0; i < n; i++ {
+		b.Commit()
+	}
+}
+
 // Commit marks the next item in order as committed.
 // Commit order must match Add order.
 func (b *Batcher) Commit() {
@@ -97,6 +105,13 @@ func (b *Batcher) Commit() {
 	}
 
 	b.lastCommitted = nextCommit
+}
+
+// RollbackN calls Rollback n times.
+func (b *Batcher) RollbackN(n int) {
+	for i := 0; i < n; i++ {
+		b.Rollback()
+	}
 }
 
 // Rollback removes the latest uncommitted item.

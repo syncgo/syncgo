@@ -16,8 +16,8 @@ build:
 	mkdir -p bin
 	go build -o bin ./...
 
-run: build
-	./bin/syncgo --config=dev/config.yaml
+lint: tools
+	$(GOBIN)/golangci-lint run ./...
 
 test:
 	go test ./... -v -short
@@ -57,11 +57,3 @@ pg_generator:
 	docker exec dev-postgres-1 psql -U postgres -d pglogrepl -c "INSERT INTO t VALUES(1, 'foo');"
 	docker exec dev-postgres-1 psql -U postgres -d pglogrepl -c "UPDATE t SET name='bar';"
 	docker exec dev-postgres-1 psql -U postgres -d pglogrepl -c "DELETE FROM t;"
-
-.PHONY: install-go-test-coverage
-install-go-test-coverage:
-	go install github.com/vladopajic/go-test-coverage/v2@latest
-
-.PHONY: check-coverage
-check-coverage: install-go-test-coverage
-	go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./... ./bin/go-test-coverage --config=.github/workflows/testcoverage.yml

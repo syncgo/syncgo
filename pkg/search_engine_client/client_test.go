@@ -454,7 +454,9 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"green"}`))
+			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
+				t.Errorf("failed to write resp: %v", err) 
+			}
 		}))
 		defer srv.Close()
 		pingC := mustHTTPClient(t, srv.URL)
@@ -468,7 +470,9 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("timeout clamped to pingTimeoutLimit", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"green"}`))
+			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
+				t.Errorf("failed to write resp: %v", err) 
+			}
 		}))
 		defer srv.Close()
 		pingC := mustHTTPClient(t, srv.URL)
@@ -483,7 +487,9 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("bad status", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"status":"green"}`))
+			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
+				t.Errorf("failed to write resp: %v", err) 
+			}
 		}))
 		defer srv.Close()
 		pingC := mustHTTPClient(t, srv.URL)
@@ -495,7 +501,9 @@ func TestPingClusterHealth(t *testing.T) {
 
 	t.Run("network error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"status":"green"}`))
+			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
+				t.Errorf("failed to write resp: %v", err) 
+			}
 		}))
 		addr := srv.URL
 		srv.Close()
