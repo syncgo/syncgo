@@ -289,16 +289,23 @@ func (c *LogicalReplicationConn) validateReplicationSetup(ctx context.Context, c
 		return fmt.Errorf("failed to check replication slot %q: %w", cfg.SlotName, err)
 	}
 	if !slotExists {
-		return fmt.Errorf("replication slot %q does not exist", cfg.SlotName)
+		slog.Debug("replication slot does not exist", slog.String("slotName", cfg.SlotName))
+		if err = c.createReplicationSlot(ctx, cfg.SlotName, true); err != nil {
+			return err
+		}
 	}
 
-	pubExists, err := postgresql.PublicationExists(ctx, adminConn, cfg.PublicationName)
-	if err != nil {
-		return fmt.Errorf("failed to check publication %q: %w", cfg.PublicationName, err)
-	}
-	if !pubExists {
-		return fmt.Errorf("publication %q does not exist", cfg.PublicationName)
-	}
+	// pubExists, err := postgresql.PublicationExists(ctx, adminConn, cfg.PublicationName)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to check publication %q: %w", cfg.PublicationName, err)
+	// }
+	// if !pubExists {
+	// 	slog.Debug("publication does not exist", slog.String("publicationName", cfg.PublicationName))
+	// 	if err = c.createPublication(ctx); err != nil {
+	// 		return err
+	// 	}
+	// 	return fmt.Errorf("publication %q does not exist", cfg.PublicationName)
+	// }
 
 	return nil
 }
