@@ -9,12 +9,17 @@ import (
 	"time"
 
 	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	asynctask "github.com/romanchechyotkin/syncgo/pkg/async_task"
 	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+)
+
+const (
+	standbyMessageTimeout = time.Second * 10
 )
 
 type RowBatcher interface {
@@ -32,6 +37,7 @@ type LogicalRepicationConfig struct {
 
 type LogicalReplicationConn struct {
 	wg sync.WaitGroup
+	mu sync.Mutex
 
 	conn     *pgconn.PgConn
 	slotName string
@@ -39,12 +45,14 @@ type LogicalReplicationConn struct {
 	plugin     string
 	pluginArgs []string
 
-	xLogPos               pglogrepl.LSN
-	txn                   txnTracker
-	standbyMessageTimeout time.Duration
-	idColumn              string
+	xLogPos  pglogrepl.LSN
+	txn      txnTracker
+	idColumn string
 
 	batcher RowBatcher
+
+	standbyMessageTimeout time.Duration
+	standbyMessageTask    *asynctask.AsyncTask
 }
 
 func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, batcher RowBatcher) (*LogicalReplicationConn, error) {
@@ -52,8 +60,8 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		wg:                    sync.WaitGroup{},
 		conn:                  conn,
 		slotName:              cfg.SlotName,
-		standbyMessageTimeout: time.Second * 10,
 		batcher:               batcher,
+		standbyMessageTimeout: standbyMessageTimeout,
 	}
 
 	if cfg.IDColumn == "" {
@@ -89,6 +97,13 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		slog.String("dbName", sysident.DBName),
 	)
 
+	replicationConn.standbyMessageTask = asynctask.New(standbyMessageTimeout, func(ctx context.Context) {
+		if err := replicationConn.sendStandbyStatusUpdate(ctx); err != nil {
+			slog.Error("failed to send standby status update", slog.String("err", err.Error()))
+		}
+	})
+	replicationConn.standbyMessageTask.Start(ctx)
+
 	return replicationConn, nil
 }
 
@@ -105,12 +120,11 @@ func (c *LogicalReplicationConn) StartReplication(ctx context.Context) error {
 		return err
 	}
 
-	clientXLogPos := c.xLogPos
 	relations := map[uint32]*pglogrepl.RelationMessage{}
 	typeMap := pgtype.NewMap()
 
 	c.wg.Go(func() {
-		if err := c.readReplicationMessages(ctx, clientXLogPos, relations, typeMap); err != nil {
+		if err := c.readReplicationMessages(ctx, relations, typeMap); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				slog.Error("failed to read replication messages", slog.String("err", err.Error()))
 			}
@@ -179,20 +193,12 @@ func (c *LogicalReplicationConn) startReplication(ctx context.Context, slotName 
 // 	return nil
 // }
 
-func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, clientXLogPos pglogrepl.LSN, relations map[uint32]*pglogrepl.RelationMessage, typeMap *pgtype.Map) error {
-	standbyStatusTicker := time.NewTicker(c.standbyMessageTimeout)
-	defer standbyStatusTicker.Stop()
-
+func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, relations map[uint32]*pglogrepl.RelationMessage, typeMap *pgtype.Map) error {
 	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			slog.Error("context done, stopping read replication messages")
 			return ctx.Err()
-		case <-standbyStatusTicker.C:
-			if err := c.sendStandbyStatusUpdate(ctx, clientXLogPos); err != nil {
-				slog.Error("failed to send standby status update", slog.String("err", err.Error()))
-				return err
-			}
 		default:
 			rawMsg, err := c.conn.ReceiveMessage(ctx)
 			if err != nil {
@@ -228,11 +234,19 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 					slog.Time("serverTime", pkm.ServerTime),
 					slog.Bool("replyRequested", pkm.ReplyRequested),
 				)
+
+				c.mu.Lock()
+				clientXLogPos := c.xLogPos
+				c.mu.Unlock()
+
 				if pkm.ServerWALEnd > clientXLogPos {
-					clientXLogPos = pkm.ServerWALEnd
+					c.mu.Lock()
+					c.xLogPos = pkm.ServerWALEnd
+					c.mu.Unlock()
 				}
+
 				if pkm.ReplyRequested {
-					if err := c.sendStandbyStatusUpdate(ctx, clientXLogPos); err != nil {
+					if err := c.sendStandbyStatusUpdate(ctx); err != nil {
 						return err
 					}
 				}
@@ -252,8 +266,14 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 
 				c.process(xld.WALData, relations, typeMap)
 
+				c.mu.Lock()
+				clientXLogPos := c.xLogPos
+				c.mu.Unlock()
+
 				if xld.WALStart > clientXLogPos {
-					clientXLogPos = xld.WALStart
+					c.mu.Lock()
+					c.xLogPos = xld.WALStart
+					c.mu.Unlock()
 				}
 			}
 		}
@@ -262,7 +282,11 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, cl
 	return ctx.Err()
 }
 
-func (c *LogicalReplicationConn) sendStandbyStatusUpdate(ctx context.Context, clientXLogPos pglogrepl.LSN) error {
+func (c *LogicalReplicationConn) sendStandbyStatusUpdate(ctx context.Context) error {
+	c.mu.Lock()
+	clientXLogPos := c.xLogPos
+	c.mu.Unlock()
+
 	if err := pglogrepl.SendStandbyStatusUpdate(ctx, c.conn, pglogrepl.StandbyStatusUpdate{WALWritePosition: clientXLogPos}); err != nil {
 		slog.Error("failed to send standby status update", slog.String("err", err.Error()))
 		return err
