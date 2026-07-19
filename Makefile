@@ -1,5 +1,5 @@
 GOBIN := $(shell pwd)/bin
-MODULE  := github.com/romanchechyotkin/syncgo
+MODULE  := github.com/syncgo/syncgo
 
 .PHONY: tools generate build test run \
         dev_setup dev_build dev_down dev_stop dev_start \

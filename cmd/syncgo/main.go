@@ -12,14 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/internal/batcher"
-	"github.com/romanchechyotkin/syncgo/internal/replication"
-	"github.com/romanchechyotkin/syncgo/pkg/config"
-	"github.com/romanchechyotkin/syncgo/pkg/http_client"
-	_ "github.com/romanchechyotkin/syncgo/pkg/logger"
-	"github.com/romanchechyotkin/syncgo/pkg/metrics"
-	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
-	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client"
+	"github.com/syncgo/syncgo/internal/batcher"
+	"github.com/syncgo/syncgo/internal/replication"
+	"github.com/syncgo/syncgo/pkg/config"
+	"github.com/syncgo/syncgo/pkg/http_client"
+	_ "github.com/syncgo/syncgo/pkg/logger"
+	"github.com/syncgo/syncgo/pkg/metrics"
+	"github.com/syncgo/syncgo/pkg/postgresql"
+	"github.com/syncgo/syncgo/pkg/search_engine_client"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

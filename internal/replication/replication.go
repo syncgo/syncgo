@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
-	asynctask "github.com/romanchechyotkin/syncgo/pkg/async_task"
-	"github.com/romanchechyotkin/syncgo/pkg/postgresql"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
+	asynctask "github.com/syncgo/syncgo/pkg/async_task"
+	"github.com/syncgo/syncgo/pkg/postgresql"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"

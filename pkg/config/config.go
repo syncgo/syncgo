@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/pkg/gzip"
+	"github.com/syncgo/syncgo/pkg/gzip"
+
 	"gopkg.in/yaml.v3"
 )
 

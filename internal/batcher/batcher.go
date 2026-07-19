@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
 )
 
 //go:generate go tool mockgen -source=batcher.go -destination=./mocks/bulk_sender_mock.go -package=mocks

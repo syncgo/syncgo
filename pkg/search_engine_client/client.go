@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
-	asynctask "github.com/romanchechyotkin/syncgo/pkg/async_task"
-	"github.com/romanchechyotkin/syncgo/pkg/gzip"
-	"github.com/romanchechyotkin/syncgo/pkg/http_client"
 	"github.com/syncgo/opensearchpb"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
+	asynctask "github.com/syncgo/syncgo/pkg/async_task"
+	"github.com/syncgo/syncgo/pkg/gzip"
+	"github.com/syncgo/syncgo/pkg/http_client"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
