@@ -8,9 +8,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/romanchechyotkin/syncgo/pkg/config"
-	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client"
-	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client/mocks"
+	"github.com/syncgo/syncgo/pkg/config"
+	"github.com/syncgo/syncgo/pkg/search_engine_client"
+	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
