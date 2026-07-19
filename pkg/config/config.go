@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultConfigPath = "config.yaml"
+	defaultConfigPath = "/etc/syncgo/config.yaml"
 
 	elasticsearch = "elasticsearch"
 	opensearch    = "opensearch"
