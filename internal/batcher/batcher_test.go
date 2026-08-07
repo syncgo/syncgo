@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
 )
 
 type mockSender struct {

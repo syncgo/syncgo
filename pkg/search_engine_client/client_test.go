@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
-	"github.com/romanchechyotkin/syncgo/pkg/http_client"
-	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client/mocks"
 	"github.com/syncgo/opensearchpb"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
+	"github.com/syncgo/syncgo/pkg/http_client"
+	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
+
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -455,7 +456,7 @@ func TestPingClusterHealth(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err) 
+				t.Errorf("failed to write resp: %v", err)
 			}
 		}))
 		defer srv.Close()
@@ -471,7 +472,7 @@ func TestPingClusterHealth(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err) 
+				t.Errorf("failed to write resp: %v", err)
 			}
 		}))
 		defer srv.Close()
@@ -488,7 +489,7 @@ func TestPingClusterHealth(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err) 
+				t.Errorf("failed to write resp: %v", err)
 			}
 		}))
 		defer srv.Close()
@@ -502,7 +503,7 @@ func TestPingClusterHealth(t *testing.T) {
 	t.Run("network error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err) 
+				t.Errorf("failed to write resp: %v", err)
 			}
 		}))
 		addr := srv.URL

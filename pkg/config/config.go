@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/pkg/gzip"
+	"github.com/syncgo/syncgo/pkg/gzip"
+
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	defaultConfigPath = "config.yaml"
+	defaultConfigPath = "/etc/syncgo/config.yaml"
 
 	elasticsearch = "elasticsearch"
 	opensearch    = "opensearch"

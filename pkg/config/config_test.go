@@ -257,28 +257,6 @@ postgresql:
 			expectError: true,
 			errorMsg:    "config file not found",
 		},
-		{
-			name: "empty path uses default",
-			yamlContent: `
-postgresql:
-  user: testuser
-  password: testpass
-  host: localhost
-  port: "5432"
-  database: testdb
-  slot_name: test
-  publication_name: pglogrepl_demo
-search_engine:
-  name: elasticsearch
-  address: http://localhost:9200
-  username: admin
-  password: secret
-batcher:
-  size: 100
-`,
-			path:        "",
-			expectError: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -287,38 +265,25 @@ batcher:
 			var cleanup func()
 
 			if tt.path == "" && tt.yamlContent != "" {
-				if tt.name == "empty path uses default" {
-					testPath = defaultConfigPath
-					err := os.WriteFile(testPath, []byte(tt.yamlContent), 0644)
-					if err != nil {
-						t.Fatalf("failed to create test file: %v", err)
-					}
-					cleanup = func() {
-						if err := os.Remove(testPath); err != nil {
-							t.Fatalf("failed to remove test file: %v", err)
-						}
-					}
-				} else {
-					tmpFile, err := os.CreateTemp("", "test-config-*.yaml")
-					if err != nil {
-						t.Fatalf("failed to create temp file: %v", err)
-					}
-					testPath = tmpFile.Name()
-					if err := tmpFile.Close(); err != nil {
-						t.Fatalf("failed to close temp file: %v", err)
-					}
+				tmpFile, err := os.CreateTemp("", "test-config-*.yaml")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				testPath = tmpFile.Name()
+				if err := tmpFile.Close(); err != nil {
+					t.Fatalf("failed to close temp file: %v", err)
+				}
 
-					err = os.WriteFile(testPath, []byte(tt.yamlContent), 0644)
-					if err != nil {
-						if err := os.Remove(testPath); err != nil {
-							t.Fatalf("failed to remove test file: %v", err)
-						}
-						t.Fatalf("failed to write test file: %v", err)
+				err = os.WriteFile(testPath, []byte(tt.yamlContent), 0644)
+				if err != nil {
+					if err := os.Remove(testPath); err != nil {
+						t.Fatalf("failed to remove test file: %v", err)
 					}
-					cleanup = func() {
-						if err := os.Remove(testPath); err != nil {
-							t.Fatalf("failed to remove test file: %v", err)
-						}
+					t.Fatalf("failed to write test file: %v", err)
+				}
+				cleanup = func() {
+					if err := os.Remove(testPath); err != nil {
+						t.Fatalf("failed to remove test file: %v", err)
 					}
 				}
 			} else if tt.path != "" {

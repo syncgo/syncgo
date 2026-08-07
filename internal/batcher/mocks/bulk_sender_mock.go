@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	bulk_transformer "github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	bulk_transformer "github.com/syncgo/syncgo/internal/bulk_transformer"
 	gomock "go.uber.org/mock/gomock"
 )
 

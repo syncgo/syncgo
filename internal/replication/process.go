@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgtype"

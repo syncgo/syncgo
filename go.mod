@@ -1,4 +1,4 @@
-module github.com/romanchechyotkin/syncgo
+module github.com/syncgo/syncgo
 
 go 1.26.1
 

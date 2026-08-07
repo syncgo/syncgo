@@ -6,9 +6,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/romanchechyotkin/syncgo/internal/batcher"
-	"github.com/romanchechyotkin/syncgo/internal/bulk_transformer"
-	"github.com/romanchechyotkin/syncgo/pkg/search_engine_client/mocks"
+	"github.com/syncgo/syncgo/internal/batcher"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
+	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
 
 	"github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"

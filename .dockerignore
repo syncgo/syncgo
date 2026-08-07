@@ -1,0 +1,19 @@
+# git
+.github
+.git
+.gitignore
+
+# binaries
+bin
+
+.idea
+.vscode
+
+# tests
+e2e
+**/*_test.go
+
+# etc
+LICENSE
+README.md
+Makefile

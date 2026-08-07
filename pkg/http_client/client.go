@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/romanchechyotkin/syncgo/pkg/gzip"
-	"github.com/romanchechyotkin/syncgo/pkg/tls"
+	"github.com/syncgo/syncgo/pkg/gzip"
+	"github.com/syncgo/syncgo/pkg/tls"
 
 	"github.com/valyala/fasthttp"
 )
