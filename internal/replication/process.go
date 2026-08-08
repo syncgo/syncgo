@@ -24,7 +24,6 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 		relations[logicalMsg.RelationID] = logicalMsg
 
 	case *pglogrepl.BeginMessage:
-		// Only committed transactions are emitted in pgoutput; reset per-txn counter.
 		c.txn.begin()
 
 	case *pglogrepl.CommitMessage:
@@ -37,6 +36,7 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 			return
 		}
 		values := tupleToValues(rel, logicalMsg.Tuple, typeMap)
+		slog.Debug("insert data", slog.Any("values", values))
 		id, ok := documentID(c.idColumn, values)
 		if !ok {
 			slog.Error("missing document id column",
@@ -66,6 +66,7 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 		if len(keyValues) == 0 {
 			keyValues = tupleToValues(rel, logicalMsg.NewTuple, typeMap)
 		}
+		slog.Debug("update old data", slog.Any("values", keyValues))
 		id, ok := documentID(c.idColumn, keyValues)
 		if !ok {
 			slog.Error("missing document id column for update",
@@ -75,6 +76,7 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 			return
 		}
 		newValues := tupleToValues(rel, logicalMsg.NewTuple, typeMap)
+		slog.Debug("update new data", slog.Any("values", keyValues))
 		item, ok := valuesToData(id, bulk_transformer.Update, newValues)
 		if !ok {
 			return
@@ -93,6 +95,7 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 			return
 		}
 		values := tupleToValues(rel, logicalMsg.OldTuple, typeMap)
+		slog.Debug("delete data", slog.Any("values", values))
 		id, ok := documentID(c.idColumn, values)
 		if !ok {
 			slog.Error("missing document id column for delete",
