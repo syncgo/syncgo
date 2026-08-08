@@ -39,8 +39,9 @@ type LogicalReplicationConn struct {
 	wg sync.WaitGroup
 	mu sync.Mutex
 
-	conn     *pgconn.PgConn
-	slotName string
+	conn            *pgconn.PgConn
+	slotName        string
+	publicationName string
 
 	plugin     string
 	pluginArgs []string
@@ -60,28 +61,18 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		wg:                    sync.WaitGroup{},
 		conn:                  conn,
 		slotName:              cfg.SlotName,
+		publicationName:       cfg.PublicationName,
+		idColumn:              cfg.IDColumn,
 		batcher:               batcher,
 		standbyMessageTimeout: standbyMessageTimeout,
 	}
 
-	if cfg.IDColumn == "" {
-		replicationConn.idColumn = "id"
-	}
+	replicationConn.plugin = "pgoutput"
+	replicationConn.pluginArgs = replicationConn.buildPluginArgs()
 
 	if err := replicationConn.validateReplicationSetup(ctx, cfg); err != nil {
 		return nil, err
 	}
-
-	// if err := replicationConn.dropPublication(ctx); err != nil {
-	// 	return nil, err
-	// }
-	//
-	// if err := replicationConn.createPublication(ctx); err != nil {
-	// 	return nil, err
-	// }
-
-	replicationConn.plugin = "pgoutput"
-	replicationConn.pluginArgs = replicationConn.buildPluginArgs()
 
 	sysident, err := pglogrepl.IdentifySystem(ctx, conn)
 	if err != nil {
@@ -110,7 +101,7 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 func (c *LogicalReplicationConn) buildPluginArgs() []string {
 	return []string{
 		"proto_version '1'",
-		"publication_names 'pglogrepl_demo'",
+		fmt.Sprintf(`publication_names '%s'`, c.publicationName),
 		"messages 'false'",
 	}
 }
@@ -138,38 +129,6 @@ func (c *LogicalReplicationConn) Close() error {
 	c.wg.Wait()
 
 	return c.conn.Close(context.Background())
-}
-
-//func (c *LogicalReplicationConn) createPublication(ctx context.Context) error {
-//	result := c.conn.Exec(ctx, "CREATE PUBLICATION pglogrepl_demo FOR ALL TABLES;")
-//	if _, err := result.ReadAll(); err != nil {
-//		slog.Error("failed to create publication", slog.String("err", err.Error()))
-//		return err
-//	}
-//
-//	return nil
-//}
-
-//func (c *LogicalReplicationConn) dropPublication(ctx context.Context) error {
-//	result := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS pglogrepl_demo;")
-//	if _, err := result.ReadAll(); err != nil {
-//		slog.Error("failed to create publication", slog.String("err", err.Error()))
-//		return err
-//	}
-//
-//	return nil
-//}
-
-func (c *LogicalReplicationConn) createReplicationSlot(ctx context.Context, slotName string, temporary bool) error {
-	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin, pglogrepl.CreateReplicationSlotOptions{Temporary: temporary})
-	if err != nil {
-		slog.Error("failed to create slot", slog.String("err", err.Error()))
-		return err
-	}
-
-	slog.Info("created replication slot", slog.String("name", slotName), slog.Bool("temporary", temporary))
-
-	return nil
 }
 
 func (c *LogicalReplicationConn) startReplication(ctx context.Context, slotName string, xLogPos pglogrepl.LSN, pluginArgs []string) error {
@@ -314,22 +273,24 @@ func (c *LogicalReplicationConn) validateReplicationSetup(ctx context.Context, c
 	}
 	if !slotExists {
 		slog.Debug("replication slot does not exist", slog.String("slotName", cfg.SlotName))
-		if err = c.createReplicationSlot(ctx, cfg.SlotName, true); err != nil {
+		if err = c.createReplicationSlot(ctx, cfg.SlotName); err != nil {
 			return err
 		}
 	}
 
-	// pubExists, err := postgresql.PublicationExists(ctx, adminConn, cfg.PublicationName)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to check publication %q: %w", cfg.PublicationName, err)
-	// }
-	// if !pubExists {
-	// 	slog.Debug("publication does not exist", slog.String("publicationName", cfg.PublicationName))
-	// 	if err = c.createPublication(ctx); err != nil {
-	// 		return err
-	// 	}
-	// 	return fmt.Errorf("publication %q does not exist", cfg.PublicationName)
-	// }
+	return nil
+}
+
+func (c *LogicalReplicationConn) createReplicationSlot(ctx context.Context, slotName string) error {
+	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin, pglogrepl.CreateReplicationSlotOptions{
+		Mode: pglogrepl.LogicalReplication,
+	})
+	if err != nil {
+		slog.Error("failed to create slot", slog.String("err", err.Error()))
+		return err
+	}
+
+	slog.Info("created replication slot", slog.String("name", slotName))
 
 	return nil
 }
