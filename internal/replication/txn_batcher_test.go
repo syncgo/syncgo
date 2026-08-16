@@ -70,6 +70,15 @@ func TestTxnTracker_CommitWithNilBatcher(t *testing.T) {
 	}
 }
 
+func TestTxnTracker_RollbackWithNilBatcher(t *testing.T) {
+	var txn txnTracker
+	txn.recordAdd()
+	txn.rollback(nil)
+	if txn.adds != 0 {
+		t.Fatalf("txn.adds = %d, want 0", txn.adds)
+	}
+}
+
 func TestLogicalReplicationConn_EnqueueAndCommit(t *testing.T) {
 	b := &mockRowBatcher{}
 	c := &LogicalReplicationConn{

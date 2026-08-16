@@ -41,7 +41,7 @@ func data(v string) bulk_transformer.Data {
 
 func TestBatcher_AddCommitFlush(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -61,7 +61,7 @@ func TestBatcher_AddCommitFlush(t *testing.T) {
 
 func TestBatcher_FlushWithoutCommit(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Flush()
@@ -73,7 +73,7 @@ func TestBatcher_FlushWithoutCommit(t *testing.T) {
 
 func TestBatcher_PartialCommitFlush(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -100,7 +100,7 @@ func TestBatcher_PartialCommitFlush(t *testing.T) {
 
 func TestBatcher_RollbackLastUncommitted(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -113,7 +113,7 @@ func TestBatcher_RollbackLastUncommitted(t *testing.T) {
 
 func TestBatcher_RollbackCommittedDoesNothing(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -128,7 +128,7 @@ func TestBatcher_FlushFailureKeepsBuffer(t *testing.T) {
 	sender := &mockSender{
 		err: errors.New("bulk failed"),
 	}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -145,7 +145,7 @@ func TestBatcher_FlushFailureKeepsBuffer(t *testing.T) {
 
 func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 2, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 2, 0, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -171,7 +171,7 @@ func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 
 func TestBatcher_MultipleFlushes(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -198,7 +198,7 @@ func TestBatcher_MultipleFlushes(t *testing.T) {
 
 func TestBatcher_CommitMoreThanBuffer(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -218,7 +218,7 @@ func TestBatcher_CommitMoreThanBuffer(t *testing.T) {
 
 func TestBatcher_FlushEmpty(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Flush()
 
@@ -229,7 +229,7 @@ func TestBatcher_FlushEmpty(t *testing.T) {
 
 func TestBatcher_RollbackEmpty(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Rollback()
 
@@ -240,7 +240,7 @@ func TestBatcher_RollbackEmpty(t *testing.T) {
 
 func TestBatcher_AutoFlushOnBufferFull_VerifyData(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 2, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 2, 0, sender)
 
 	b.Add(data("x"))
 	b.Commit()
@@ -333,9 +333,30 @@ func TestBatcher_TimeoutResetAfterSizeFlush(t *testing.T) {
 	}
 }
 
+func TestBatcher_CommitNRollbackN(t *testing.T) {
+	sender := &mockSender{}
+	b := NewBatcher(context.Background(), 10, 0, sender)
+
+	b.Add(data("a"))
+	b.Add(data("b"))
+	b.Add(data("c"))
+
+	b.CommitN(2)
+	b.RollbackN(1)
+	b.Flush()
+
+	if len(sender.payloads) != 1 {
+		t.Fatalf("expected 1 flush, got %d", len(sender.payloads))
+	}
+	got := sender.payloads[0]
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
+		t.Fatalf("unexpected flushed items: %v", got)
+	}
+}
+
 func TestBatcher_OrderPreserved(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 50*time.Millisecond, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
