@@ -54,3 +54,63 @@ func (mr *MockBulkSenderMockRecorder) Bulk(ctx, data any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Bulk", reflect.TypeOf((*MockBulkSender)(nil).Bulk), ctx, data)
 }
+
+// MockMetrics is a mock of Metrics interface.
+type MockMetrics struct {
+	ctrl     *gomock.Controller
+	recorder *MockMetricsMockRecorder
+	isgomock struct{}
+}
+
+// MockMetricsMockRecorder is the mock recorder for MockMetrics.
+type MockMetricsMockRecorder struct {
+	mock *MockMetrics
+}
+
+// NewMockMetrics creates a new mock instance.
+func NewMockMetrics(ctrl *gomock.Controller) *MockMetrics {
+	mock := &MockMetrics{ctrl: ctrl}
+	mock.recorder = &MockMetricsMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockMetrics) EXPECT() *MockMetricsMockRecorder {
+	return m.recorder
+}
+
+// AddBatcherFlushedItems mocks base method.
+func (m *MockMetrics) AddBatcherFlushedItems(result string, count float64) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "AddBatcherFlushedItems", result, count)
+}
+
+// AddBatcherFlushedItems indicates an expected call of AddBatcherFlushedItems.
+func (mr *MockMetricsMockRecorder) AddBatcherFlushedItems(result, count any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddBatcherFlushedItems", reflect.TypeOf((*MockMetrics)(nil).AddBatcherFlushedItems), result, count)
+}
+
+// ObserveBatcherFlushDuration mocks base method.
+func (m *MockMetrics) ObserveBatcherFlushDuration(seconds float64) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ObserveBatcherFlushDuration", seconds)
+}
+
+// ObserveBatcherFlushDuration indicates an expected call of ObserveBatcherFlushDuration.
+func (mr *MockMetricsMockRecorder) ObserveBatcherFlushDuration(seconds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ObserveBatcherFlushDuration", reflect.TypeOf((*MockMetrics)(nil).ObserveBatcherFlushDuration), seconds)
+}
+
+// SetBatcherBufferSize mocks base method.
+func (m *MockMetrics) SetBatcherBufferSize(n int) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetBatcherBufferSize", n)
+}
+
+// SetBatcherBufferSize indicates an expected call of SetBatcherBufferSize.
+func (mr *MockMetricsMockRecorder) SetBatcherBufferSize(n any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBatcherBufferSize", reflect.TypeOf((*MockMetrics)(nil).SetBatcherBufferSize), n)
+}
