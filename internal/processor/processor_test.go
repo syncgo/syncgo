@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/syncgo/syncgo/internal/batcher"
-	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	batchermocks "github.com/syncgo/syncgo/internal/batcher/mocks"
+	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
 
