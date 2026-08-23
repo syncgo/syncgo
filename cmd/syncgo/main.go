@@ -53,9 +53,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	b := initBatcher(ctx, cfg.Batcher, client)
+	b := initBatcher(ctx, cfg.Batcher, client, monitoring)
 
-	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg, b)
+	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg, b, monitoring)
 	if err != nil {
 		slog.Error("failed init postgresql connection", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -81,8 +81,8 @@ func main() {
 	slog.Info("syncgo stopped successfully")
 }
 
-func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender) *batcher.Batcher {
-	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender)
+func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender, monitoring *metrics.SearchMetrics) *batcher.Batcher {
+	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender, batcher.WithMetrics(monitoring))
 
 	slog.Info("batcher initialized",
 		slog.Int("size", cfg.Size),
@@ -112,7 +112,7 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 	return client, nil
 }
 
-func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config, b *batcher.Batcher) (*replication.LogicalReplicationConn, error) {
+func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config, b *batcher.Batcher, monitoring *metrics.SearchMetrics) (*replication.LogicalReplicationConn, error) {
 	pgCfg := postgresql.Config{
 		User:     cfg.PostgreSQL.User,
 		Password: cfg.PostgreSQL.Password,
@@ -132,7 +132,7 @@ func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config, b *b
 		SlotName:        cfg.PostgreSQL.SlotName,
 		IDColumn:        cfg.PostgreSQL.IDColumn,
 		DB:              pgCfg,
-	}, conn, b)
+	}, conn, b, monitoring)
 }
 
 func searchTLSToClient(t *config.SearchTLSConfig) *http_client.ClientTLSConfig {

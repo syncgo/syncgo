@@ -14,6 +14,20 @@ type BulkSender interface {
 	Bulk(ctx context.Context, data bulk_transformer.DataPayload) error
 }
 
+type Metrics interface {
+	SetBatcherBufferSize(n int)
+	AddBatcherFlushedItems(result string, count float64)
+	ObserveBatcherFlushDuration(seconds float64)
+}
+
+type Option func(*Batcher)
+
+func WithMetrics(m Metrics) Option {
+	return func(b *Batcher) {
+		b.metrics = m
+	}
+}
+
 type Batcher struct {
 	mu sync.Mutex
 
@@ -29,11 +43,12 @@ type Batcher struct {
 	// to avoid firing a timeout flush too soon after a size-triggered flush.
 	lastFlushTime time.Time
 
-	sender BulkSender
-	ctx    context.Context
+	sender  BulkSender
+	metrics Metrics
+	ctx     context.Context
 }
 
-func NewBatcher(ctx context.Context, bufferSize int, flushTimeout time.Duration, sender BulkSender) *Batcher {
+func NewBatcher(ctx context.Context, bufferSize int, flushTimeout time.Duration, sender BulkSender, opts ...Option) *Batcher {
 	batcher := &Batcher{
 		ctx:           ctx,
 		buffer:        make([]bulk_transformer.Data, 0, bufferSize),
@@ -44,11 +59,22 @@ func NewBatcher(ctx context.Context, bufferSize int, flushTimeout time.Duration,
 		lastFlushTime: time.Now(),
 	}
 
+	for _, opt := range opts {
+		opt(batcher)
+	}
+
 	if flushTimeout > 0 {
 		go batcher.startFlushLoop()
 	}
 
 	return batcher
+}
+
+func (b *Batcher) reportBufferSize() {
+	if b.metrics == nil {
+		return
+	}
+	b.metrics.SetBatcherBufferSize(len(b.buffer))
 }
 
 func (b *Batcher) startFlushLoop() {
@@ -83,6 +109,7 @@ func (b *Batcher) Add(item bulk_transformer.Data) {
 	}
 
 	b.buffer = append(b.buffer, item)
+	b.reportBufferSize()
 }
 
 // CommitN calls Commit method n times
@@ -131,6 +158,7 @@ func (b *Batcher) Rollback() {
 	}
 
 	b.buffer = b.buffer[:lastIndex]
+	b.reportBufferSize()
 }
 
 // Flush sends only committed items.
@@ -151,17 +179,29 @@ func (b *Batcher) flushLocked() {
 	flushLen := b.lastCommitted + 1
 	payload := bulk_transformer.DataPayload(b.buffer[:flushLen])
 
-	if err := b.sender.Bulk(b.ctx, payload); err != nil {
+	start := time.Now()
+	err := b.sender.Bulk(b.ctx, payload)
+	if b.metrics != nil {
+		b.metrics.ObserveBatcherFlushDuration(time.Since(start).Seconds())
+	}
+	if err != nil {
 		slog.Error("batcher: bulk send failed",
 			slog.Int("last_committed", b.lastCommitted),
 			slog.Int("flush_len", flushLen),
 			slog.String("error", err.Error()),
 		)
+		if b.metrics != nil {
+			b.metrics.AddBatcherFlushedItems("fail", float64(flushLen))
+		}
 		return
+	}
+	if b.metrics != nil {
+		b.metrics.AddBatcherFlushedItems("success", float64(flushLen))
 	}
 
 	// Keep only uncommitted tail
 	b.buffer = b.buffer[flushLen:]
+	b.reportBufferSize()
 
 	// Reset commit pointer relative to new buffer
 	b.lastCommitted = -1
