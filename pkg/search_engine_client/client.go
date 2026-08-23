@@ -179,6 +179,10 @@ func (c *Client) Close() error {
 		c.healthTask.Stop()
 	}
 
+	if c.httpClient != nil {
+		c.httpClient.Close()
+	}
+
 	return nil
 }
 
