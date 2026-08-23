@@ -113,6 +113,10 @@ func (c *Client) DoTimeout(
 	return statusCode, nil
 }
 
+func (c *Client) Close() {
+	c.client.CloseIdleConnections()
+}
+
 func (c *Client) buildURI(endpoint string) (*fasthttp.URI, error) {
 	uri := &fasthttp.URI{}
 
