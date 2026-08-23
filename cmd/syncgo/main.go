@@ -4,42 +4,21 @@ import (
 	"context"
 	"flag"
 	"log/slog"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
-	"time"
 
-	"github.com/syncgo/syncgo/internal/batcher"
-	"github.com/syncgo/syncgo/internal/replication"
+	"github.com/syncgo/syncgo/internal/processor"
 	"github.com/syncgo/syncgo/pkg/config"
-	"github.com/syncgo/syncgo/pkg/http_client"
 	_ "github.com/syncgo/syncgo/pkg/logger"
 	"github.com/syncgo/syncgo/pkg/metrics"
-	"github.com/syncgo/syncgo/pkg/postgresql"
-	"github.com/syncgo/syncgo/pkg/search_engine_client"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-)
-
-const (
-	cancelTimeout = 30 * time.Second
 )
 
 func main() {
-	ctx := context.Background()
-
-	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	initCtx, cancel := context.WithTimeout(ctx, cancelTimeout)
-	defer cancel()
-
-	configPath := parseConfigFlag()
-
-	cfg, err := config.LoadFromYAML(configPath)
+	cfg, err := config.LoadFromYAML(parseConfigFlag())
 	if err != nil {
 		slog.Error("failed to load config", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -47,136 +26,18 @@ func main() {
 
 	monitoring := metrics.New()
 
-	client, err := initClient(initCtx, cfg.SearchEngine, monitoring)
+	p, err := processor.New(ctx, cfg, monitoring)
 	if err != nil {
-		slog.Error("failed init search engine client connection", slog.String("err", err.Error()))
+		slog.Error("failed to initialize processor", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
 
-	b := initBatcher(ctx, cfg.Batcher, client)
-
-	replicationConn, err := initPostgresqlReplicationConn(initCtx, cfg, b)
-	if err != nil {
-		slog.Error("failed init postgresql connection", slog.String("err", err.Error()))
-		os.Exit(1)
-	}
-
-	startMetricsServer(ctx, cfg)
-
-	if err = replicationConn.StartReplication(ctx); err != nil {
-		slog.Error("failed to start replication", slog.String("err", err.Error()))
-		os.Exit(1)
-	}
-
-	<-ctx.Done()
-	slog.Info("shutdown signal received")
-
-	b.Flush()
-
-	if err := replicationConn.Close(); err != nil {
-		slog.Error("failed to close connection", slog.String("err", err.Error()))
+	if err := p.Run(ctx); err != nil {
+		slog.Error("processor run failed", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
 
 	slog.Info("syncgo stopped successfully")
-}
-
-func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender) *batcher.Batcher {
-	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender)
-
-	slog.Info("batcher initialized",
-		slog.Int("size", cfg.Size),
-		slog.Duration("flush_interval", cfg.FlushInterval),
-	)
-
-	return b
-}
-
-func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.SearchMetrics) (*search_engine_client.Client, error) {
-	client, err := search_engine_client.New(ctx, search_engine_client.Config{
-		Name:              cfg.Name,
-		Address:           cfg.Address,
-		Username:          cfg.Username,
-		Password:          cfg.Password,
-		Index:             cfg.Index,
-		ConnectionTimeout: cfg.ConnectionTimeout,
-		GzipCompression:   cfg.GzipCompression,
-		TLS:               searchTLSToClient(cfg.TLS),
-		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
-	}, monitoring)
-	if err != nil {
-		slog.Error("failed to create search engine client", slog.String("error", err.Error()))
-		return nil, err
-	}
-
-	return client, nil
-}
-
-func initPostgresqlReplicationConn(ctx context.Context, cfg *config.Config, b *batcher.Batcher) (*replication.LogicalReplicationConn, error) {
-	pgCfg := postgresql.Config{
-		User:     cfg.PostgreSQL.User,
-		Password: cfg.PostgreSQL.Password,
-		Host:     cfg.PostgreSQL.Host,
-		Port:     cfg.PostgreSQL.Port,
-		Database: cfg.PostgreSQL.Database,
-	}
-
-	conn, err := postgresql.New(ctx, pgCfg)
-	if err != nil {
-		slog.Error("failed to create postgresql connection", slog.String("error", err.Error()))
-		return nil, err
-	}
-
-	return replication.New(ctx, replication.LogicalRepicationConfig{
-		PublicationName: cfg.PostgreSQL.PublicationName,
-		SlotName:        cfg.PostgreSQL.SlotName,
-		IDColumn:        cfg.PostgreSQL.IDColumn,
-		DB:              pgCfg,
-	}, conn, b)
-}
-
-func searchTLSToClient(t *config.SearchTLSConfig) *http_client.ClientTLSConfig {
-	if t == nil {
-		return nil
-	}
-	return &http_client.ClientTLSConfig{
-		CACert:             t.CACert,
-		InsecureSkipVerify: t.InsecureSkipVerify,
-	}
-}
-
-func searchKeepAliveToClient(k *config.SearchKeepAliveConfig) *http_client.ClientKeepAliveConfig {
-	if k == nil {
-		return nil
-	}
-	return &http_client.ClientKeepAliveConfig{
-		MaxConnDuration:     k.MaxConnDuration,
-		MaxIdleConnDuration: k.MaxIdleConnDuration,
-	}
-}
-
-func startMetricsServer(ctx context.Context, cfg *config.Config) {
-	if cfg.Metrics.Port <= 0 {
-		return
-	}
-	addr := net.JoinHostPort("0.0.0.0", strconv.Itoa(cfg.Metrics.Port))
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	srv := &http.Server{Addr: addr, Handler: mux}
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("metrics server failed", slog.String("err", err.Error()))
-		}
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("metrics server shutdown failed", slog.String("err", err.Error()))
-		}
-	}()
-	slog.Info("metrics server listening", slog.String("addr", addr))
 }
 
 func parseConfigFlag() string {
