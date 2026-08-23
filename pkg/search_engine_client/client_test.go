@@ -42,6 +42,24 @@ func mustHTTPClient(t *testing.T, addr string) *http_client.Client {
 	return c
 }
 
+// newServerClient starts an httptest server running handler and returns a Client
+// wired to talk to it over HTTP. If closeImmediately is true, the server is closed
+// right away so the returned Client points at an unreachable address (used to
+// simulate network errors); otherwise it stays up for the duration of the test.
+func newServerClient(t *testing.T, mon Monitoring, handler http.HandlerFunc, closeImmediately bool, timeout time.Duration) *Client {
+	t.Helper()
+
+	srv := httptest.NewServer(handler)
+	addr := srv.URL
+	if closeImmediately {
+		srv.Close()
+	} else {
+		t.Cleanup(srv.Close)
+	}
+
+	return &Client{name: "test", baseURL: addr, httpClient: mustHTTPClient(t, addr), timeout: timeout, monitoring: mon}
+}
+
 // --- timeoutFromContext ---
 
 func TestTimeoutFromContext(t *testing.T) {
@@ -259,190 +277,138 @@ func TestGrpcIsConnected(t *testing.T) {
 
 // --- New ---
 
-func TestNew_BasicHTTP(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+func okHandler(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
 
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
+func TestNew_Success(t *testing.T) {
+	tests := []struct {
+		name      string
+		newServer func() *httptest.Server
+		config    func(addr string) Config
+		check     func(t *testing.T, c *Client)
+	}{
+		{
+			name:      "basic http",
+			newServer: func() *httptest.Server { return httptest.NewServer(http.HandlerFunc(okHandler)) },
+			config:    func(addr string) Config { return Config{Address: addr, Name: "test"} },
+		},
+		{
+			name:      "with username and password",
+			newServer: func() *httptest.Server { return httptest.NewServer(http.HandlerFunc(okHandler)) },
+			config: func(addr string) Config {
+				return Config{Address: addr, Name: "test", Username: "user", Password: "pass"}
+			},
+		},
+		{
+			name:      "with API key header",
+			newServer: func() *httptest.Server { return httptest.NewServer(http.HandlerFunc(okHandler)) },
+			config:    func(addr string) Config { return Config{Address: addr, Name: "test", APIKey: "my-key"} },
+		},
+		{
+			name:      "with index",
+			newServer: func() *httptest.Server { return httptest.NewServer(http.HandlerFunc(okHandler)) },
+			config:    func(addr string) Config { return Config{Address: addr, Name: "test", Index: "my-index"} },
+		},
+		{
+			// timeout < pingTimeoutLimit (10s) → no clamping in ping
+			name:      "with custom timeout below ping clamp limit",
+			newServer: func() *httptest.Server { return httptest.NewServer(http.HandlerFunc(okHandler)) },
+			config: func(addr string) Config {
+				return Config{Address: addr, Name: "test", ConnectionTimeout: 5 * time.Second}
+			},
+		},
+		{
+			name:      "with TLS insecure",
+			newServer: func() *httptest.Server { return httptest.NewTLSServer(http.HandlerFunc(okHandler)) },
+			config: func(addr string) Config {
+				return Config{Address: addr, Name: "test", TLS: &http_client.ClientTLSConfig{InsecureSkipVerify: true}}
+			},
+		},
+		{
+			name:      "with gRPC",
+			newServer: func() *httptest.Server { return httptest.NewServer(http.HandlerFunc(okHandler)) },
+			config: func(addr string) Config {
+				return Config{Address: addr, Name: "test", GRPC: &GRPCConfig{Host: "localhost", Port: 50052}}
+			},
+			check: func(t *testing.T, c *Client) {
+				defer func() {
+					if err := c.Close(); err != nil {
+						t.Errorf("c.Close: %v", err)
+					}
+				}()
+				if !c.GrpcIsConnected() {
+					t.Error("expected grpc connected")
+				}
+			},
+		},
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := tt.newServer()
+			defer srv.Close()
 
-	c, err := New(ctx, Config{Address: srv.URL, Name: "test"}, mon)
-	if err != nil || c == nil {
-		t.Fatalf("New: %v", err)
+			ctrl := gomock.NewController(t)
+			mon := mocks.NewMockMonitoring(ctrl)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			c, err := New(ctx, tt.config(srv.URL), mon)
+			if err != nil || c == nil {
+				t.Fatalf("New: %v", err)
+			}
+			if tt.check != nil {
+				tt.check(t, c)
+			}
+		})
 	}
 }
 
-func TestNew_WithUsernamePassword(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c, err := New(ctx, Config{Address: srv.URL, Name: "test", Username: "user", Password: "pass"}, mon)
-	if err != nil || c == nil {
-		t.Fatalf("New with creds: %v", err)
+func TestNew_Failure(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) Config
+	}{
+		{
+			name: "ping bad status",
+			setup: func(t *testing.T) Config {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusUnauthorized)
+				}))
+				t.Cleanup(srv.Close)
+				return Config{Address: srv.URL, Name: "test"}
+			},
+		},
+		{
+			name: "ping network error",
+			setup: func(t *testing.T) Config {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+				addr := srv.URL
+				srv.Close()
+				return Config{Address: addr, Name: "test", ConnectionTimeout: 100 * time.Millisecond}
+			},
+		},
+		{
+			name: "invalid TLS cert path",
+			setup: func(t *testing.T) Config {
+				return Config{
+					Address: "http://localhost:9200",
+					Name:    "test",
+					TLS:     &http_client.ClientTLSConfig{CACert: "/nonexistent/cert.pem"},
+				}
+			},
+		},
 	}
-}
 
-func TestNew_WithAPIKeyHeader(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mon := mocks.NewMockMonitoring(ctrl)
 
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c, err := New(ctx, Config{Address: srv.URL, Name: "test", APIKey: "my-key"}, mon)
-	if err != nil || c == nil {
-		t.Fatalf("New with API key: %v", err)
-	}
-}
-
-func TestNew_WithIndex(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c, err := New(ctx, Config{Address: srv.URL, Name: "test", Index: "my-index"}, mon)
-	if err != nil || c == nil {
-		t.Fatalf("New with index: %v", err)
-	}
-}
-
-func TestNew_WithCustomTimeout(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// timeout < pingTimeoutLimit (10s) → no clamping in ping
-	c, err := New(ctx, Config{Address: srv.URL, Name: "test", ConnectionTimeout: 5 * time.Second}, mon)
-	if err != nil || c == nil {
-		t.Fatalf("New with custom timeout: %v", err)
-	}
-}
-
-func TestNew_WithTLSInsecure(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c, err := New(ctx, Config{
-		Address: srv.URL,
-		Name:    "test",
-		TLS:     &http_client.ClientTLSConfig{InsecureSkipVerify: true},
-	}, mon)
-	if err != nil || c == nil {
-		t.Fatalf("New with TLS insecure: %v", err)
-	}
-}
-
-func TestNew_WithGRPC(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c, err := New(ctx, Config{
-		Address: srv.URL,
-		Name:    "test",
-		GRPC:    &GRPCConfig{Host: "localhost", Port: 50052},
-	}, mon)
-	if err != nil {
-		t.Fatalf("New with gRPC: %v", err)
-	}
-	defer func() {
-		if err := c.Close(); err != nil {
-			t.Errorf("c.Close: %v", err)
-		}
-	}()
-	if !c.GrpcIsConnected() {
-		t.Error("expected grpc connected")
-	}
-}
-
-func TestNew_PingBadStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	if _, err := New(context.Background(), Config{Address: srv.URL, Name: "test"}, mon); err == nil {
-		t.Error("expected error for 401 ping")
-	}
-}
-
-func TestNew_PingNetworkError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	addr := srv.URL
-	srv.Close()
-
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	if _, err := New(context.Background(), Config{
-		Address:           addr,
-		Name:              "test",
-		ConnectionTimeout: 100 * time.Millisecond,
-	}, mon); err == nil {
-		t.Error("expected error for unreachable server")
-	}
-}
-
-func TestNew_InvalidTLSCert(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mon := mocks.NewMockMonitoring(ctrl)
-
-	if _, err := New(context.Background(), Config{
-		Address: "http://localhost:9200",
-		Name:    "test",
-		TLS:     &http_client.ClientTLSConfig{CACert: "/nonexistent/cert.pem"},
-	}, mon); err == nil {
-		t.Error("expected error for invalid TLS cert path")
+			if _, err := New(context.Background(), tt.setup(t), mon); err == nil {
+				t.Error("expected error")
+			}
+		})
 	}
 }
 
@@ -452,16 +418,15 @@ func TestPingClusterHealth(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mon := mocks.NewMockMonitoring(ctrl)
 
+	greenHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
+			t.Errorf("failed to write resp: %v", err)
+		}
+	}
+
 	t.Run("success", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err)
-			}
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		c := newServerClient(t, mon, greenHandler, false, 5*time.Second)
 		if err := c.PingClusterHealth(context.Background()); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -469,15 +434,7 @@ func TestPingClusterHealth(t *testing.T) {
 
 	// context deadline > pingTimeoutLimit (10s) → clamped to pingTimeoutLimit
 	t.Run("timeout clamped to pingTimeoutLimit", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err)
-			}
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: time.Hour, monitoring: mon}
+		c := newServerClient(t, mon, greenHandler, false, time.Hour)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 		defer cancel()
 		if err := c.PingClusterHealth(ctx); err != nil {
@@ -486,30 +443,19 @@ func TestPingClusterHealth(t *testing.T) {
 	})
 
 	t.Run("bad status", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
 				t.Errorf("failed to write resp: %v", err)
 			}
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
 		if err := c.PingClusterHealth(context.Background()); err == nil {
 			t.Error("expected error for 503")
 		}
 	})
 
 	t.Run("network error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, err := w.Write([]byte(`{"status":"green"}`)); err != nil {
-				t.Errorf("failed to write resp: %v", err)
-			}
-		}))
-		addr := srv.URL
-		srv.Close()
-		pingC := mustHTTPClient(t, addr)
-		c := &Client{name: "test", baseURL: addr, httpClient: pingC, timeout: 100 * time.Millisecond, monitoring: mon}
+		c := newServerClient(t, mon, greenHandler, true, 100*time.Millisecond)
 		if err := c.PingClusterHealth(context.Background()); err == nil {
 			t.Error("expected error for unreachable server")
 		}
@@ -528,13 +474,11 @@ func TestBulk_HTTP(t *testing.T) {
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("test", "success")
 
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": false})
-		}))
-		defer srv.Close()
+		}, false, 5*time.Second)
+		c.index = "test_index"
 
-		bulkC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", httpClient: bulkC, index: "test_index", timeout: 5 * time.Second, monitoring: mon}
 		if err := c.Bulk(context.Background(), payload); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -546,7 +490,7 @@ func TestBulk_HTTP(t *testing.T) {
 		mon.EXPECT().AddSearchErrors("test", float64(1))
 		mon.EXPECT().IncSearchRequests("test", "fail")
 
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"errors": true,
 				"items": []interface{}{map[string]interface{}{
@@ -556,11 +500,9 @@ func TestBulk_HTTP(t *testing.T) {
 					},
 				}},
 			})
-		}))
-		defer srv.Close()
+		}, false, 5*time.Second)
+		c.index = "test_index"
 
-		bulkC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", httpClient: bulkC, index: "test_index", timeout: 5 * time.Second, monitoring: mon}
 		if err := c.Bulk(context.Background(), payload); err == nil {
 			t.Error("expected error for indexing errors")
 		}
@@ -571,12 +513,9 @@ func TestBulk_HTTP(t *testing.T) {
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("test", "fail")
 
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		addr := srv.URL
-		srv.Close()
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
+		c.index = "test_index"
 
-		bulkC := mustHTTPClient(t, addr)
-		c := &Client{name: "test", httpClient: bulkC, index: "test_index", timeout: 100 * time.Millisecond, monitoring: mon}
 		if err := c.Bulk(context.Background(), payload); err == nil {
 			t.Error("expected error for network error")
 		}
@@ -658,12 +597,7 @@ func TestIndexExists(t *testing.T) {
 	mon := mocks.NewMockMonitoring(ctrl)
 
 	t.Run("exists", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		c := newServerClient(t, mon, okHandler, false, 5*time.Second)
 		exists, err := c.IndexExists(context.Background(), "my-index")
 		if err != nil || !exists {
 			t.Errorf("exists: got (%v, %v)", exists, err)
@@ -671,12 +605,9 @@ func TestIndexExists(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
 		exists, err := c.IndexExists(context.Background(), "my-index")
 		if err != nil || exists {
 			t.Errorf("not found: got (%v, %v)", exists, err)
@@ -684,23 +615,16 @@ func TestIndexExists(t *testing.T) {
 	})
 
 	t.Run("unexpected status", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
 		if _, err := c.IndexExists(context.Background(), "my-index"); err == nil {
 			t.Error("expected error for 500")
 		}
 	})
 
 	t.Run("network error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		addr := srv.URL
-		srv.Close()
-		pingC := mustHTTPClient(t, addr)
-		c := &Client{name: "test", baseURL: addr, httpClient: pingC, timeout: 100 * time.Millisecond, monitoring: mon}
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
 		if _, err := c.IndexExists(context.Background(), "my-index"); err == nil {
 			t.Error("expected error for network error")
 		}
@@ -714,36 +638,23 @@ func TestCreateIndex(t *testing.T) {
 	mon := mocks.NewMockMonitoring(ctrl)
 
 	t.Run("created 200", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		c := newServerClient(t, mon, okHandler, false, 5*time.Second)
 		if err := c.CreateIndex(context.Background(), "my-index", nil); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("created 201", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusCreated)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
 		if err := c.CreateIndex(context.Background(), "my-index", nil); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("with body", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		c := newServerClient(t, mon, okHandler, false, 5*time.Second)
 		body := []byte(`{"mappings":{"properties":{"field":{"type":"keyword"}}}}`)
 		if err := c.CreateIndex(context.Background(), "my-index", body); err != nil {
 			t.Errorf("unexpected error: %v", err)
@@ -751,23 +662,16 @@ func TestCreateIndex(t *testing.T) {
 	})
 
 	t.Run("bad status", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
-		}))
-		defer srv.Close()
-		pingC := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", baseURL: srv.URL, httpClient: pingC, timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
 		if err := c.CreateIndex(context.Background(), "my-index", nil); err == nil {
 			t.Error("expected error for 400")
 		}
 	})
 
 	t.Run("network error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		addr := srv.URL
-		srv.Close()
-		pingC := mustHTTPClient(t, addr)
-		c := &Client{name: "test", baseURL: addr, httpClient: pingC, timeout: 100 * time.Millisecond, monitoring: mon}
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
 		if err := c.CreateIndex(context.Background(), "my-index", nil); err == nil {
 			t.Error("expected error for network error")
 		}
@@ -893,12 +797,8 @@ func TestDocumentExists(t *testing.T) {
 	mon := mocks.NewMockMonitoring(ctrl)
 
 	t.Run("200 → exists", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer srv.Close()
-		hc := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", httpClient: hc, index: "my-index", timeout: 5 * time.Second, monitoring: mon}
+		c := newServerClient(t, mon, okHandler, false, 5*time.Second)
+		c.index = "my-index"
 		exists, err := c.DocumentExists(context.Background(), "doc-1")
 		if err != nil || !exists {
 			t.Errorf("expected (true, nil), got (%v, %v)", exists, err)
@@ -906,12 +806,10 @@ func TestDocumentExists(t *testing.T) {
 	})
 
 	t.Run("404 → not found", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer srv.Close()
-		hc := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", httpClient: hc, index: "my-index", timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
+		c.index = "my-index"
 		exists, err := c.DocumentExists(context.Background(), "doc-1")
 		if err != nil || exists {
 			t.Errorf("expected (false, nil), got (%v, %v)", exists, err)
@@ -919,23 +817,18 @@ func TestDocumentExists(t *testing.T) {
 	})
 
 	t.Run("unexpected status → error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer srv.Close()
-		hc := mustHTTPClient(t, srv.URL)
-		c := &Client{name: "test", httpClient: hc, index: "my-index", timeout: 5 * time.Second, monitoring: mon}
+		}, false, 5*time.Second)
+		c.index = "my-index"
 		if _, err := c.DocumentExists(context.Background(), "doc-1"); err == nil {
 			t.Error("expected error for 500")
 		}
 	})
 
 	t.Run("network error → error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		addr := srv.URL
-		srv.Close()
-		hc := mustHTTPClient(t, addr)
-		c := &Client{name: "test", httpClient: hc, index: "my-index", timeout: 100 * time.Millisecond, monitoring: mon}
+		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
+		c.index = "my-index"
 		if _, err := c.DocumentExists(context.Background(), "doc-1"); err == nil {
 			t.Error("expected error for network error")
 		}
