@@ -22,6 +22,7 @@ func TestBatcherWithElasticsearch_FlushOnSize(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)
@@ -63,6 +64,7 @@ func TestBatcherWithElasticsearch_Flush(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)
@@ -91,6 +93,7 @@ func TestBatcherWithElasticsearch_DeleteAfterCreate(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(2)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(2)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(2)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)
