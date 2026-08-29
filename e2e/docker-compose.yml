@@ -2,8 +2,18 @@ services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "logical_decoding_work_mem=64MB"
     ports:
-      - "5432:5432"
+      - "${SYNCGO_E2E_PG_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -47,6 +57,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - syncgo-network
 
   opensearch:
     image: opensearchproject/opensearch:2.18.0
@@ -76,6 +88,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - syncgo-network
 
 volumes:
   postgres_data:

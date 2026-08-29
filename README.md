@@ -8,7 +8,9 @@ SyncGo uses PostgreSQL logical replication to consume database changes and write
 
 For production, SyncGo is distributed and executed as a **binary**.
 
-Docker-based production deployment has **not been tested** and is therefore not currently considered a supported production deployment method.
+Running SyncGo from its Docker image is covered by the automated end-to-end pipeline
+tests (see [End-to-end tests](#end-to-end-tests)), but it has not been hardened for
+production and is not currently considered a supported production deployment method.
 
 # Installation
 
@@ -691,6 +693,37 @@ make generate_data
 ```
 
 Inserts/updates/deletes records in the demo PostgreSQL instance to demonstrate CDC synchronization.
+
+---
+
+# End-to-end tests
+
+In addition to the demo above, the repository has two automated end-to-end test suites
+under `e2e/`, both built with the `e2e` build tag:
+
+* `e2e/elastic` and `e2e/opensearch` — exercise the search engine clients directly
+  (bulk indexing, batching, index/document existence) against real Elasticsearch and
+  OpenSearch instances. They expect the E2E Docker Compose stack to already be running
+  (`make prepare`).
+
+* `e2e/pipeline` — runs the full CDC pipeline: a real PostgreSQL instance with logical
+  replication, and SyncGo itself running either as a **locally built binary**
+  (`go build`) or as its **Docker image** (`docker build` + `docker run`, on the same
+  Compose network, configured from a generated file under `e2e/`). Each test provisions
+  its own isolated table/publication/slot/index, writes a large batch of rows spanning a
+  variety of column types (strings, numbers, booleans, nested JSON, NULLs, timestamps),
+  updates and deletes a subset, and verifies — by reading documents back from
+  Elasticsearch/OpenSearch — that every surviving row synced correctly and every deleted
+  row is gone. This suite manages its own Docker Compose lifecycle (including working
+  around a locally occupied PostgreSQL port) and does not require `make prepare` first.
+
+Run them with:
+
+```bash
+make test-e2e-client    # e2e/elastic + e2e/opensearch
+make test-e2e-pipeline  # e2e/pipeline (binary and Docker image)
+make test-e2e           # both
+```
 
 ---
 
