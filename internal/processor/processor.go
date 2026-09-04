@@ -36,7 +36,7 @@ type Processor struct {
 	shutdownErr  error
 }
 
-func New(parentCtx context.Context, cfg *config.Config, monitoring *metrics.SearchMetrics) (*Processor, error) {
+func New(parentCtx context.Context, cfg *config.Config, monitoring *metrics.Metrics) (*Processor, error) {
 	initCtx, cancel := context.WithTimeout(parentCtx, initTimeout)
 	defer cancel()
 
@@ -110,8 +110,8 @@ func (p *Processor) shutdown() error {
 	return errors.Join(errs...)
 }
 
-func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender, monitoring *metrics.SearchMetrics) *batcher.Batcher {
-	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender, batcher.WithMetrics(monitoring))
+func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender, monitoring *metrics.Metrics) *batcher.Batcher {
+	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender, monitoring)
 
 	slog.Info("batcher initialized",
 		slog.Int("size", cfg.Size),
@@ -121,7 +121,7 @@ func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.B
 	return b
 }
 
-func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.SearchMetrics) (*search_engine_client.Client, error) {
+func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *metrics.Metrics) (*search_engine_client.Client, error) {
 	client, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Name:              cfg.Name,
 		Address:           cfg.Address,
@@ -141,7 +141,7 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 	return client, nil
 }
 
-func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher, monitoring *metrics.SearchMetrics) (*replication.LogicalReplicationConn, error) {
+func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher, monitoring *metrics.Metrics) (*replication.LogicalReplicationConn, error) {
 	pgCfg := postgresql.Config{
 		User:     cfg.PostgreSQL.User,
 		Password: cfg.PostgreSQL.Password,

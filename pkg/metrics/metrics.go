@@ -4,14 +4,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type SearchMetrics struct {
+type Metrics struct {
 	requestsTotal *prometheus.CounterVec
 	errorsTotal   *prometheus.CounterVec
 	bulkDuration  *prometheus.HistogramVec
 
-	batcherBufferSize    prometheus.Gauge
-	batcherFlushedItems  *prometheus.CounterVec
-	batcherFlushDuration prometheus.Histogram
+	batcherBufferSize prometheus.Gauge
 
 	replicationEventsTotal       *prometheus.CounterVec
 	replicationTransactionsTotal prometheus.Counter
@@ -19,8 +17,8 @@ type SearchMetrics struct {
 	replicationLagSeconds        prometheus.Gauge
 }
 
-func New() *SearchMetrics {
-	searchMetrics := &SearchMetrics{
+func New() *Metrics {
+	metrics := &Metrics{
 		requestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "syncgo_search_requests_total",
@@ -43,28 +41,12 @@ func New() *SearchMetrics {
 			},
 			[]string{"backend", "status"},
 		),
-
 		batcherBufferSize: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Name: "syncgo_batcher_buffer_size",
-				Help: "Current number of rows buffered by the batcher, including uncommitted ones.",
+				Help: "Current number of buffered rows in the batcher, including uncommitted ones.",
 			},
 		),
-		batcherFlushedItems: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "syncgo_batcher_flushed_items_total",
-				Help: "Total number of committed rows flushed from the batcher to the search backend.",
-			},
-			[]string{"result"},
-		),
-		batcherFlushDuration: prometheus.NewHistogram(
-			prometheus.HistogramOpts{
-				Name:    "syncgo_batcher_flush_duration_seconds",
-				Help:    "Duration of a batcher flush, including the downstream bulk send.",
-				Buckets: prometheus.DefBuckets,
-			},
-		),
-
 		replicationEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "syncgo_replication_events_total",
@@ -94,63 +76,50 @@ func New() *SearchMetrics {
 	}
 
 	prometheus.MustRegister(
-		searchMetrics.requestsTotal,
-		searchMetrics.errorsTotal,
-		searchMetrics.bulkDuration,
-		searchMetrics.batcherBufferSize,
-		searchMetrics.batcherFlushedItems,
-		searchMetrics.batcherFlushDuration,
-		searchMetrics.replicationEventsTotal,
-		searchMetrics.replicationTransactionsTotal,
-		searchMetrics.replicationErrorsTotal,
-		searchMetrics.replicationLagSeconds,
+		metrics.requestsTotal,
+		metrics.errorsTotal,
+		metrics.bulkDuration,
+		metrics.batcherBufferSize,
+		metrics.replicationEventsTotal,
+		metrics.replicationTransactionsTotal,
+		metrics.replicationErrorsTotal,
+		metrics.replicationLagSeconds,
 	)
 
-	return searchMetrics
+	return metrics
 }
 
-func (m *SearchMetrics) IncSearchRequests(backend, status string) {
+func (m *Metrics) IncSearchRequests(backend, status string) {
 	m.requestsTotal.WithLabelValues(backend, status).Inc()
 }
 
-func (m *SearchMetrics) AddSearchErrors(backend string, count float64) {
+func (m *Metrics) AddSearchErrors(backend string, count float64) {
 	if count <= 0 {
 		return
 	}
 	m.errorsTotal.WithLabelValues(backend).Add(count)
 }
 
-func (m *SearchMetrics) ObserveSearchBulkDuration(backend, status string, seconds float64) {
+func (m *Metrics) ObserveSearchBulkDuration(backend, status string, seconds float64) {
 	m.bulkDuration.WithLabelValues(backend, status).Observe(seconds)
 }
 
-func (m *SearchMetrics) SetBatcherBufferSize(n int) {
+func (m *Metrics) SetBatcherBufferSize(n int) {
 	m.batcherBufferSize.Set(float64(n))
 }
 
-func (m *SearchMetrics) AddBatcherFlushedItems(result string, count float64) {
-	if count <= 0 {
-		return
-	}
-	m.batcherFlushedItems.WithLabelValues(result).Add(count)
-}
-
-func (m *SearchMetrics) ObserveBatcherFlushDuration(seconds float64) {
-	m.batcherFlushDuration.Observe(seconds)
-}
-
-func (m *SearchMetrics) IncReplicationEvents(operation string) {
+func (m *Metrics) IncReplicationEvents(operation string) {
 	m.replicationEventsTotal.WithLabelValues(operation).Inc()
 }
 
-func (m *SearchMetrics) IncReplicationTransactions() {
+func (m *Metrics) IncReplicationTransactions() {
 	m.replicationTransactionsTotal.Inc()
 }
 
-func (m *SearchMetrics) IncReplicationErrors(stage string) {
+func (m *Metrics) IncReplicationErrors(stage string) {
 	m.replicationErrorsTotal.WithLabelValues(stage).Inc()
 }
 
-func (m *SearchMetrics) SetReplicationLag(seconds float64) {
+func (m *Metrics) SetReplicationLag(seconds float64) {
 	m.replicationLagSeconds.Set(seconds)
 }
