@@ -28,13 +28,6 @@ type RowBatcher interface {
 	RollbackN(n int)
 }
 
-type Metrics interface {
-	IncReplicationEvents(operation string)
-	IncReplicationTransactions()
-	IncReplicationErrors(stage string)
-	SetReplicationLag(seconds float64)
-}
-
 type LogicalRepicationConfig struct {
 	PublicationName string
 	SlotName        string
@@ -58,13 +51,12 @@ type LogicalReplicationConn struct {
 	idColumn string
 
 	batcher RowBatcher
-	metrics Metrics
 
 	standbyMessageTimeout time.Duration
 	standbyMessageTask    *asynctask.AsyncTask
 }
 
-func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, batcher RowBatcher, metrics Metrics) (*LogicalReplicationConn, error) {
+func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, batcher RowBatcher) (*LogicalReplicationConn, error) {
 	replicationConn := &LogicalReplicationConn{
 		wg:                    sync.WaitGroup{},
 		conn:                  conn,
@@ -72,7 +64,6 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		publicationName:       cfg.PublicationName,
 		idColumn:              cfg.IDColumn,
 		batcher:               batcher,
-		metrics:               metrics,
 		standbyMessageTimeout: standbyMessageTimeout,
 	}
 
@@ -105,34 +96,6 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 	replicationConn.standbyMessageTask.Start(ctx)
 
 	return replicationConn, nil
-}
-
-func (c *LogicalReplicationConn) setLag(serverTime time.Time) {
-	if c.metrics == nil || serverTime.IsZero() {
-		return
-	}
-	c.metrics.SetReplicationLag(time.Since(serverTime).Seconds())
-}
-
-func (c *LogicalReplicationConn) incErr(stage string) {
-	if c.metrics == nil {
-		return
-	}
-	c.metrics.IncReplicationErrors(stage)
-}
-
-func (c *LogicalReplicationConn) incEvent(operation string) {
-	if c.metrics == nil {
-		return
-	}
-	c.metrics.IncReplicationEvents(operation)
-}
-
-func (c *LogicalReplicationConn) incTxn() {
-	if c.metrics == nil {
-		return
-	}
-	c.metrics.IncReplicationTransactions()
 }
 
 func (c *LogicalReplicationConn) buildPluginArgs() []string {
@@ -202,13 +165,11 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, re
 					continue
 				}
 				slog.Error("failed to receive message", slog.String("err", err.Error()))
-				c.incErr("receive_message")
 				return err
 			}
 
 			if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
 				slog.Error("received Postgres WAL error", slog.Any("error", errMsg))
-				c.incErr("wal_error_response")
 				return fmt.Errorf("postgres WAL error: %+v", errMsg)
 			}
 
@@ -225,7 +186,6 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, re
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
 				if err != nil {
 					slog.Error("failed to parse primary keepalive message", slog.String("err", err.Error()))
-					c.incErr("parse_keepalive")
 					return err
 				}
 				slog.Debug("primary keepalive message",
@@ -233,8 +193,6 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, re
 					slog.Time("serverTime", pkm.ServerTime),
 					slog.Bool("replyRequested", pkm.ReplyRequested),
 				)
-
-				c.setLag(pkm.ServerTime)
 
 				c.mu.Lock()
 				clientXLogPos := c.xLogPos
@@ -256,7 +214,6 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, re
 				xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
 				if err != nil {
 					slog.Error("failed to parse xlog data", slog.String("err", err.Error()))
-					c.incErr("parse_xlog_data")
 					return err
 				}
 
@@ -265,8 +222,6 @@ func (c *LogicalReplicationConn) readReplicationMessages(ctx context.Context, re
 					slog.String("serverWALEnd", xld.ServerWALEnd.String()),
 					slog.Time("serverTime", xld.ServerTime),
 				)
-
-				c.setLag(xld.ServerTime)
 
 				c.process(xld.WALData, relations, typeMap)
 

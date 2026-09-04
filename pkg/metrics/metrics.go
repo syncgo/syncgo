@@ -10,11 +10,6 @@ type Metrics struct {
 	bulkDuration  *prometheus.HistogramVec
 
 	batcherBufferSize prometheus.Gauge
-
-	replicationEventsTotal       *prometheus.CounterVec
-	replicationTransactionsTotal prometheus.Counter
-	replicationErrorsTotal       *prometheus.CounterVec
-	replicationLagSeconds        prometheus.Gauge
 }
 
 func New() *Metrics {
@@ -47,32 +42,6 @@ func New() *Metrics {
 				Help: "Current number of buffered rows in the batcher, including uncommitted ones.",
 			},
 		),
-		replicationEventsTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "syncgo_replication_events_total",
-				Help: "Total number of change events decoded from the PostgreSQL logical replication stream.",
-			},
-			[]string{"operation"},
-		),
-		replicationTransactionsTotal: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Name: "syncgo_replication_transactions_total",
-				Help: "Total number of committed transactions processed from the replication stream.",
-			},
-		),
-		replicationErrorsTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "syncgo_replication_errors_total",
-				Help: "Total number of errors encountered while decoding or processing replication messages.",
-			},
-			[]string{"stage"},
-		),
-		replicationLagSeconds: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Name: "syncgo_replication_lag_seconds",
-				Help: "Replication lag in seconds, computed as the time since the last WAL message reported by PostgreSQL.",
-			},
-		),
 	}
 
 	prometheus.MustRegister(
@@ -80,10 +49,6 @@ func New() *Metrics {
 		metrics.errorsTotal,
 		metrics.bulkDuration,
 		metrics.batcherBufferSize,
-		metrics.replicationEventsTotal,
-		metrics.replicationTransactionsTotal,
-		metrics.replicationErrorsTotal,
-		metrics.replicationLagSeconds,
 	)
 
 	return metrics
@@ -106,20 +71,4 @@ func (m *Metrics) ObserveSearchBulkDuration(backend, status string, seconds floa
 
 func (m *Metrics) SetBatcherBufferSize(n int) {
 	m.batcherBufferSize.Set(float64(n))
-}
-
-func (m *Metrics) IncReplicationEvents(operation string) {
-	m.replicationEventsTotal.WithLabelValues(operation).Inc()
-}
-
-func (m *Metrics) IncReplicationTransactions() {
-	m.replicationTransactionsTotal.Inc()
-}
-
-func (m *Metrics) IncReplicationErrors(stage string) {
-	m.replicationErrorsTotal.WithLabelValues(stage).Inc()
-}
-
-func (m *Metrics) SetReplicationLag(seconds float64) {
-	m.replicationLagSeconds.Set(seconds)
 }

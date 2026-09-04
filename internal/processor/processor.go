@@ -161,7 +161,7 @@ func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher
 		SlotName:        cfg.PostgreSQL.SlotName,
 		IDColumn:        cfg.PostgreSQL.IDColumn,
 		DB:              pgCfg,
-	}, conn, b, monitoring)
+	}, conn, b)
 }
 
 func searchTLSToClient(t *config.SearchTLSConfig) *http_client.ClientTLSConfig {

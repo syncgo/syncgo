@@ -28,13 +28,11 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 
 	case *pglogrepl.CommitMessage:
 		c.txn.commit(c.batcher)
-		c.incTxn()
 
 	case *pglogrepl.InsertMessage:
 		rel, ok := relations[logicalMsg.RelationID]
 		if !ok {
 			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
-			c.incErr("unknown_relation")
 			return
 		}
 		values := tupleToValues(rel, logicalMsg.Tuple, typeMap)
@@ -45,16 +43,13 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 				slog.String("column", c.idColumn),
 				slog.String("relation", rel.RelationName),
 			)
-			c.incErr("missing_id_column")
 			return
 		}
 		item, ok := valuesToData(id, bulk_transformer.Index, values)
 		if !ok {
-			c.incErr("marshal_row")
 			return
 		}
 		c.enqueueRow(item)
-		c.incEvent("insert")
 		slog.Debug("insert operation",
 			slog.String("namespace", rel.Namespace),
 			slog.String("relationName", rel.RelationName),
@@ -65,7 +60,6 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 		rel, ok := relations[logicalMsg.RelationID]
 		if !ok {
 			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
-			c.incErr("unknown_relation")
 			return
 		}
 		keyValues := tupleToValues(rel, logicalMsg.OldTuple, typeMap)
@@ -79,18 +73,15 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 				slog.String("column", c.idColumn),
 				slog.String("relation", rel.RelationName),
 			)
-			c.incErr("missing_id_column")
 			return
 		}
 		newValues := tupleToValues(rel, logicalMsg.NewTuple, typeMap)
 		slog.Debug("update new data", slog.Any("values", keyValues))
 		item, ok := valuesToData(id, bulk_transformer.Update, newValues)
 		if !ok {
-			c.incErr("marshal_row")
 			return
 		}
 		c.enqueueRow(item)
-		c.incEvent("update")
 		slog.Debug("update operation",
 			slog.String("namespace", rel.Namespace),
 			slog.String("relationName", rel.RelationName),
@@ -101,7 +92,6 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 		rel, ok := relations[logicalMsg.RelationID]
 		if !ok {
 			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
-			c.incErr("unknown_relation")
 			return
 		}
 		values := tupleToValues(rel, logicalMsg.OldTuple, typeMap)
@@ -112,11 +102,9 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 				slog.String("column", c.idColumn),
 				slog.String("relation", rel.RelationName),
 			)
-			c.incErr("missing_id_column")
 			return
 		}
 		c.enqueueRow(deleteData(id))
-		c.incEvent("delete")
 		slog.Debug("delete operation",
 			slog.String("namespace", rel.Namespace),
 			slog.String("relationName", rel.RelationName),
@@ -124,7 +112,6 @@ func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*p
 		)
 
 	case *pglogrepl.TruncateMessage:
-		c.incEvent("truncate")
 		slog.Debug("truncate operation", slog.Int("relationCount", len(logicalMsg.RelationIDs)))
 
 	case *pglogrepl.TypeMessage:
