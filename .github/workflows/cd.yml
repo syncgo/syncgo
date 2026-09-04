@@ -31,7 +31,7 @@ jobs:
           push: true
           file: ./Dockerfile
           build-args: |
-            GO_VERSION=1.26
+            GO_VERSION=1.27
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
