@@ -30,7 +30,7 @@ func TestBatcherWithElasticsearch_FlushOnSize(t *testing.T) {
 	id1 := uuid.New().String()
 	id2 := uuid.New().String()
 
-	b := batcher.NewBatcher(ctx, 2, 0, client)
+	b := batcher.NewBatcher(ctx, 2, 0, client, nil)
 
 	b.Add(bulk_transformer.Data{ID: id1, Action: bulk_transformer.Create, Body: []byte(`{"title":"Batcher Size E2E 1"}`)})
 	b.Commit()
@@ -71,7 +71,7 @@ func TestBatcherWithElasticsearch_Flush(t *testing.T) {
 
 	id := uuid.New().String()
 
-	b := batcher.NewBatcher(ctx, 100, 0, client)
+	b := batcher.NewBatcher(ctx, 100, 0, client, nil)
 	b.Add(bulk_transformer.Data{ID: id, Action: bulk_transformer.Create, Body: []byte(`{"title":"Batcher FlushNow E2E"}`)})
 	b.Commit()
 	b.Flush()
@@ -100,7 +100,7 @@ func TestBatcherWithElasticsearch_DeleteAfterCreate(t *testing.T) {
 
 	id := uuid.New().String()
 
-	createBatcher := batcher.NewBatcher(ctx, 100, 0, client)
+	createBatcher := batcher.NewBatcher(ctx, 100, 0, client, nil)
 	createBatcher.Add(bulk_transformer.Data{ID: id, Action: bulk_transformer.Create, Body: []byte(`{"title":"to be deleted"}`)})
 	createBatcher.Commit()
 	createBatcher.Flush()
@@ -113,7 +113,7 @@ func TestBatcherWithElasticsearch_DeleteAfterCreate(t *testing.T) {
 		t.Fatal("e2e; elasticsearch; batcher; expected document to exist after create flush")
 	}
 
-	deleteBatcher := batcher.NewBatcher(ctx, 100, 0, client)
+	deleteBatcher := batcher.NewBatcher(ctx, 100, 0, client, nil)
 	deleteBatcher.Add(bulk_transformer.Data{ID: id, Action: bulk_transformer.Delete})
 	deleteBatcher.Commit()
 	deleteBatcher.Flush()
