@@ -473,6 +473,7 @@ func TestBulk_HTTP(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("test", "success")
+		mon.EXPECT().ObserveSearchBulkDuration("test", "success", gomock.Any())
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": false})
@@ -489,6 +490,7 @@ func TestBulk_HTTP(t *testing.T) {
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().AddSearchErrors("test", float64(1))
 		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().ObserveSearchBulkDuration("test", "fail", gomock.Any())
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -512,6 +514,7 @@ func TestBulk_HTTP(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().ObserveSearchBulkDuration("test", "fail", gomock.Any())
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
 		c.index = "test_index"
@@ -533,6 +536,7 @@ func TestBulk_GRPC(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("test", "success")
+		mon.EXPECT().ObserveSearchBulkDuration("test", "success", gomock.Any())
 
 		c := &Client{
 			name:       "test",
@@ -550,6 +554,7 @@ func TestBulk_GRPC(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().ObserveSearchBulkDuration("test", "fail", gomock.Any())
 
 		c := &Client{
 			name:       "test",
@@ -568,6 +573,7 @@ func TestBulk_GRPC(t *testing.T) {
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().AddSearchErrors("test", float64(1))
 		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().ObserveSearchBulkDuration("test", "fail", gomock.Any())
 
 		reason := "field type mismatch"
 		c := &Client{

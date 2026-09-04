@@ -41,7 +41,8 @@ func data(v string) bulk_transformer.Data {
 
 func TestBatcher_AddCommitFlush(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -61,7 +62,8 @@ func TestBatcher_AddCommitFlush(t *testing.T) {
 
 func TestBatcher_FlushWithoutCommit(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Flush()
@@ -73,7 +75,7 @@ func TestBatcher_FlushWithoutCommit(t *testing.T) {
 
 func TestBatcher_PartialCommitFlush(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -100,7 +102,7 @@ func TestBatcher_PartialCommitFlush(t *testing.T) {
 
 func TestBatcher_RollbackLastUncommitted(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -113,7 +115,7 @@ func TestBatcher_RollbackLastUncommitted(t *testing.T) {
 
 func TestBatcher_RollbackCommittedDoesNothing(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -128,7 +130,7 @@ func TestBatcher_FlushFailureKeepsBuffer(t *testing.T) {
 	sender := &mockSender{
 		err: errors.New("bulk failed"),
 	}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -145,7 +147,7 @@ func TestBatcher_FlushFailureKeepsBuffer(t *testing.T) {
 
 func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 2, 0, sender)
+	b := NewBatcher(context.Background(), 2, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -171,7 +173,7 @@ func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 
 func TestBatcher_MultipleFlushes(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -198,7 +200,7 @@ func TestBatcher_MultipleFlushes(t *testing.T) {
 
 func TestBatcher_CommitMoreThanBuffer(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -218,7 +220,7 @@ func TestBatcher_CommitMoreThanBuffer(t *testing.T) {
 
 func TestBatcher_FlushEmpty(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Flush()
 
@@ -229,7 +231,7 @@ func TestBatcher_FlushEmpty(t *testing.T) {
 
 func TestBatcher_RollbackEmpty(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Rollback()
 
@@ -240,7 +242,7 @@ func TestBatcher_RollbackEmpty(t *testing.T) {
 
 func TestBatcher_AutoFlushOnBufferFull_VerifyData(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 2, 0, sender)
+	b := NewBatcher(context.Background(), 2, 0, sender, nil)
 
 	b.Add(data("x"))
 	b.Commit()
@@ -266,7 +268,7 @@ func TestBatcher_AutoFlushOnBufferFull_VerifyData(t *testing.T) {
 func TestBatcher_AutoFlushOnTimeout(t *testing.T) {
 	sender := &mockSender{}
 	ctx := context.Background()
-	b := NewBatcher(ctx, 100, 50*time.Millisecond, sender)
+	b := NewBatcher(ctx, 100, 50*time.Millisecond, sender, nil)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -290,7 +292,7 @@ func TestBatcher_AutoFlushOnTimeout(t *testing.T) {
 func TestBatcher_TimeoutResetAfterSizeFlush(t *testing.T) {
 	sender := &mockSender{}
 	ctx := context.Background()
-	b := NewBatcher(ctx, 2, 300*time.Millisecond, sender)
+	b := NewBatcher(ctx, 2, 300*time.Millisecond, sender, nil)
 
 	// Start the loop with a 300ms interval, then wait 100ms so the first tick
 	// is 200ms away when the size flush happens below.
@@ -335,7 +337,7 @@ func TestBatcher_TimeoutResetAfterSizeFlush(t *testing.T) {
 
 func TestBatcher_CommitNRollbackN(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -356,7 +358,7 @@ func TestBatcher_CommitNRollbackN(t *testing.T) {
 
 func TestBatcher_OrderPreserved(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender)
+	b := NewBatcher(context.Background(), 10, 0, sender, nil)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
