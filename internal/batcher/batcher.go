@@ -1,3 +1,4 @@
+//go:generate go tool mockgen -source=batcher.go -destination=./mocks/mocks.go -package=mocks
 package batcher
 
 import (
@@ -9,12 +10,10 @@ import (
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
 )
 
-//go:generate go tool mockgen -source=batcher.go -destination=./mocks/bulk_sender_mock.go -package=mocks
 type BulkSender interface {
 	Bulk(ctx context.Context, data bulk_transformer.DataPayload) error
 }
 
-//go:generate go tool mockgen -source=batcher.go -destination=./mocks/metrics_mock.go -package=mocks
 type Metrics interface {
 	SetBatcherBufferSize(n int)
 }
