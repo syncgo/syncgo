@@ -8,10 +8,10 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.12.1
-	github.com/syncgo/opensearchpb v1.0.0
+	github.com/syncgo/opensearchpb v1.7.0
 	github.com/valyala/fasthttp v1.69.0
 	go.uber.org/mock v0.6.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.83.2
 	gopkg.in/yaml.v3 v3.0.1
 )
 
