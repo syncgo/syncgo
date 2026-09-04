@@ -50,6 +50,7 @@ func TestElasticsearchClient_Create(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)
@@ -78,6 +79,7 @@ func TestElasticsearchClient_Delete(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)
@@ -118,6 +120,7 @@ func TestElasticsearchClient_Index(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)
@@ -159,6 +162,7 @@ func TestElasticsearchClient_Update(t *testing.T) {
 
 	monitoring := mocks.NewMockMonitoring(ctrl)
 	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
+	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
 	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
 
 	client := newElasticsearchClient(t, ctrl, monitoring)

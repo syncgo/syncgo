@@ -56,6 +56,7 @@ type Config struct {
 type Monitoring interface {
 	IncSearchRequests(backend, status string)
 	AddSearchErrors(backend string, errorsCount float64)
+	ObserveSearchBulkDuration(backend, status string, seconds float64)
 }
 
 type Client struct {
@@ -228,10 +229,13 @@ func (c *Client) Bulk(ctx context.Context, data bulk_transformer.DataPayload) er
 
 // bulkGRPC sends bulk data via the OpenSearch gRPC DocumentService.
 func (c *Client) bulkGRPC(ctx context.Context, data bulk_transformer.DataPayload) error {
+	start := time.Now()
+
 	req := data.ToBulkRequest(c.index)
 	resp, err := c.docClient.Bulk(ctx, req)
 	if err != nil {
 		c.monitoring.IncSearchRequests(c.name, "fail")
+		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
 		return fmt.Errorf("opensearch gRPC bulk: %w", err)
 	}
 
@@ -239,15 +243,19 @@ func (c *Client) bulkGRPC(ctx context.Context, data bulk_transformer.DataPayload
 	if indexingErrors > 0 {
 		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
 		c.monitoring.IncSearchRequests(c.name, "fail")
+		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
 		return fmt.Errorf("opensearch gRPC bulk: %d item(s) failed to index", indexingErrors)
 	}
 
 	c.monitoring.IncSearchRequests(c.name, "success")
+	c.monitoring.ObserveSearchBulkDuration(c.name, "success", time.Since(start).Seconds())
 	return nil
 }
 
 // bulkHTTP sends bulk data via the HTTP _bulk API.
 func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload) error {
+	start := time.Now()
+
 	timeout := timeoutFromContext(ctx, c.timeout)
 	var indexingErrors int
 	body := data.Bytes()
@@ -263,6 +271,7 @@ func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload
 		})
 	if err != nil {
 		c.monitoring.IncSearchRequests(c.name, "fail")
+		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
 		if statusCode >= http.StatusBadRequest {
 			return fmt.Errorf("%s bulk request failed with status %d: %w", c.name, statusCode, err)
 		}
@@ -272,9 +281,11 @@ func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload
 	if indexingErrors > 0 {
 		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
 		c.monitoring.IncSearchRequests(c.name, "fail")
+		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
 		return fmt.Errorf("%s bulk: %d item(s) failed to index", c.name, indexingErrors)
 	}
 	c.monitoring.IncSearchRequests(c.name, "success")
+	c.monitoring.ObserveSearchBulkDuration(c.name, "success", time.Since(start).Seconds())
 	return nil
 }
 
