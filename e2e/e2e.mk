@@ -1,7 +1,8 @@
-.PHONY: prepare wait_healthy_postgres create_publication generate_data
+.PHONY: prepare wait_healthy_postgres wait_healthy_search create_publication generate_data
 
 E2E_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 E2E_COMPOSE_FILE := $(E2E_DIR)docker-compose.yml
+SEARCH_HEALTH_URL ?= http://localhost:9200
 
 prepare:
 	docker compose -f "$(E2E_COMPOSE_FILE)" up -d
@@ -25,27 +26,34 @@ prepare:
 	docker exec -it e2e-postgres-1 psql -U postgres -d postgres -c 'SHOW max_replication_slots'
 	docker exec -it e2e-postgres-1 psql -U postgres -d postgres -c 'SHOW logical_decoding_work_mem'
 
+	@$(MAKE) wait_healthy_search
+
 wait_healthy_postgres:
 	until [ "$$(docker inspect --format='{{.State.Health.Status}}' e2e-postgres-1)" = "healthy" ]; do \
 	  status="$$(docker inspect --format='{{.State.Health.Status}}' e2e-postgres-1)"; \
-	  echo "Current status: $$status"; \
+	  @echo "Current status: $$status"; \
 	  sleep 2; \
 	done;
 
+wait_healthy_search:
+	until curl -fs "$(SEARCH_HEALTH_URL)/_cluster/health" >/dev/null; \
+	do @echo "waiting for search engine..."; sleep 2; \
+	done;
+	
+
 create_publication:
-	docker exec -i e2e-postgres-1 psql -U postgres -d postgres -c '\
-		DO $$$$ \
+	docker exec -i e2e-postgres-1 psql -U postgres -d postgres -c "\
+		DO \$$\$$ \
 		BEGIN \
 			IF NOT EXISTS ( \
 				SELECT 1 \
 				FROM pg_catalog.pg_publication \
-				WHERE pubname = '\''test_publication'\'' \
+				WHERE pubname = 'test_publication' \
 			) THEN \
 				CREATE PUBLICATION test_publication \
 				FOR TABLE public.test; \
 			END IF; \
-		END \
-		$$$$;'
+		END \$$\$$;"
 
 
 generate_data:
@@ -72,3 +80,18 @@ generate_data:
 	docker exec -it e2e-postgres-1 \
 	  psql -U postgres -d postgres \
 	  -c "DELETE FROM test WHERE id = 3;"
+
+
+binary_test:
+	@echo ">>> binary_test: launching syncgo binary";
+	@set -e; \
+	pkill -f 'bin/syncgo' 2>/dev/null || true; \
+	trap 'kill $$SYNC_PID 2>/dev/null || true; \
+		docker compose -f "$(E2E_COMPOSE_FILE)" down -v' EXIT; \
+	./bin/syncgo --config ./e2e/config.yaml > /tmp/syncgo-e2e.log 2>&1 & SYNC_PID=$$!; \
+	$(MAKE) --no-print-directory wait_slot_active; \
+	set +e; $(E2E_TEST); STATUS=$$?; set -e; \
+	exit $$STATUS
+
+docker_test:
+	@echo "docker test";
