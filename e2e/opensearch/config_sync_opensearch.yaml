@@ -1,0 +1,17 @@
+postgresql:
+  user: postgres
+  password: postgres
+  host: localhost
+  port: 5432
+  database: postgres
+  slot_name: sync_opensearch_slot
+  publication_name: sync_opensearch_pub
+search_engine:
+  name: opensearch
+  address: http://localhost:9300
+  username: admin
+  password: Op3nS3arch!
+  index: sync_opensearch_index
+batcher:
+  size: 100
+  flush_interval: 50ms
