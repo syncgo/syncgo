@@ -1,11 +1,11 @@
 postgresql:
-  user: pglogrepl
-  password: secret
+  user: postgres
+  password: postgres
   host: localhost
   port: 5432
-  database: pglogrepl
-  slot_name: test
-  publication_name: pglogrepl_demo
+  database: postgres
+  slot_name: test_slot
+  publication_name: test_publication
 search_engine:
   name: opensearch
   address: http://localhost:9300
