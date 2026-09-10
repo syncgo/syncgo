@@ -47,9 +47,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - syncgo-network
 
   opensearch:
-    image: opensearchproject/opensearch:2.18.0
+    image: opensearchproject/opensearch:2.18.0 # for grpc support need to update to version >= 3.2
     restart: unless-stopped
     environment:
       - discovery.type=single-node
@@ -76,6 +78,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - syncgo-network
 
 volumes:
   postgres_data:
