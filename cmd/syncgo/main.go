@@ -24,7 +24,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	monitoring := metrics.New()
+	monitoring := metrics.New(nil)
 
 	p, err := processor.New(ctx, cfg, monitoring)
 	if err != nil {

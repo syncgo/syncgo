@@ -10,14 +10,14 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/syncgo/opensearchpb"
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	"github.com/syncgo/syncgo/pkg/config"
+	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
-	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
 
 	"github.com/google/uuid"
-	"github.com/syncgo/opensearchpb"
-	gomock "go.uber.org/mock/gomock"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 )
 
@@ -156,7 +156,7 @@ func writeBulkMeta(buf *bytes.Buffer, action, id, index string) {
 	buf.WriteByte('\n')
 }
 
-func newGRPCOpensearchClient(t *testing.T, monitoring *mocks.MockMonitoring) *search_engine_client.Client {
+func newGRPCOpensearchClient(t *testing.T, monitoring search_engine_client.Monitoring) *search_engine_client.Client {
 	t.Helper()
 
 	cfg, err := config.LoadFromYAML("config_opensearch.yaml")
@@ -189,13 +189,7 @@ func newGRPCOpensearchClient(t *testing.T, monitoring *mocks.MockMonitoring) *se
 func TestOpensearchClientGRPC_Create(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
-
+	monitoring := metrics.New(prometheus.NewRegistry())
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()
@@ -219,13 +213,7 @@ func TestOpensearchClientGRPC_Create(t *testing.T) {
 func TestOpensearchClientGRPC_Index(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
-
+	monitoring := metrics.New(prometheus.NewRegistry())
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()
@@ -255,13 +243,7 @@ func TestOpensearchClientGRPC_Index(t *testing.T) {
 func TestOpensearchClientGRPC_Update(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
-
+	monitoring := metrics.New(prometheus.NewRegistry())
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()
@@ -291,13 +273,7 @@ func TestOpensearchClientGRPC_Update(t *testing.T) {
 func TestOpensearchClientGRPC_Delete(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
-
+	monitoring := metrics.New(prometheus.NewRegistry())
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()

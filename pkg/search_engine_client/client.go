@@ -54,9 +54,9 @@ type Config struct {
 
 //go:generate go tool mockgen -source=client.go -destination=./mocks/monitoring_mock.go -package=mocks
 type Monitoring interface {
-	IncSearchRequests(backend, status string)
-	AddSearchErrors(backend string, errorsCount float64)
-	ObserveSearchBulkDuration(backend, status string, seconds float64)
+	IncSearchRequests(status string)
+	AddSearchErrors(errorsCount float64)
+	ObserveSearchBulkDuration(status string, seconds float64)
 }
 
 type Client struct {
@@ -234,21 +234,21 @@ func (c *Client) bulkGRPC(ctx context.Context, data bulk_transformer.DataPayload
 	req := data.ToBulkRequest(c.index)
 	resp, err := c.docClient.Bulk(ctx, req)
 	if err != nil {
-		c.monitoring.IncSearchRequests(c.name, "fail")
-		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
+		c.monitoring.IncSearchRequests("fail")
+		c.monitoring.ObserveSearchBulkDuration("fail", time.Since(start).Seconds())
 		return fmt.Errorf("opensearch gRPC bulk: %w", err)
 	}
 
 	indexingErrors := reportGRPCBulkErrors(resp)
 	if indexingErrors > 0 {
-		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
-		c.monitoring.IncSearchRequests(c.name, "fail")
-		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
+		c.monitoring.AddSearchErrors(float64(indexingErrors))
+		c.monitoring.IncSearchRequests("fail")
+		c.monitoring.ObserveSearchBulkDuration("fail", time.Since(start).Seconds())
 		return fmt.Errorf("opensearch gRPC bulk: %d item(s) failed to index", indexingErrors)
 	}
 
-	c.monitoring.IncSearchRequests(c.name, "success")
-	c.monitoring.ObserveSearchBulkDuration(c.name, "success", time.Since(start).Seconds())
+	c.monitoring.IncSearchRequests("success")
+	c.monitoring.ObserveSearchBulkDuration("success", time.Since(start).Seconds())
 	return nil
 }
 
@@ -266,12 +266,12 @@ func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload
 		body,
 		timeout,
 		func(body []byte) error {
-			indexingErrors = c.reportOSErrors(body)
+			indexingErrors = c.reportErrors(body)
 			return nil
 		})
 	if err != nil {
-		c.monitoring.IncSearchRequests(c.name, "fail")
-		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
+		c.monitoring.IncSearchRequests("fail")
+		c.monitoring.ObserveSearchBulkDuration("fail", time.Since(start).Seconds())
 		if statusCode >= http.StatusBadRequest {
 			return fmt.Errorf("%s bulk request failed with status %d: %w", c.name, statusCode, err)
 		}
@@ -279,13 +279,13 @@ func (c *Client) bulkHTTP(ctx context.Context, data bulk_transformer.DataPayload
 	}
 
 	if indexingErrors > 0 {
-		c.monitoring.AddSearchErrors(c.name, float64(indexingErrors))
-		c.monitoring.IncSearchRequests(c.name, "fail")
-		c.monitoring.ObserveSearchBulkDuration(c.name, "fail", time.Since(start).Seconds())
+		c.monitoring.AddSearchErrors(float64(indexingErrors))
+		c.monitoring.IncSearchRequests("fail")
+		c.monitoring.ObserveSearchBulkDuration("fail", time.Since(start).Seconds())
 		return fmt.Errorf("%s bulk: %d item(s) failed to index", c.name, indexingErrors)
 	}
-	c.monitoring.IncSearchRequests(c.name, "success")
-	c.monitoring.ObserveSearchBulkDuration(c.name, "success", time.Since(start).Seconds())
+	c.monitoring.IncSearchRequests("success")
+	c.monitoring.ObserveSearchBulkDuration("success", time.Since(start).Seconds())
 	return nil
 }
 
@@ -303,8 +303,6 @@ func timeoutFromContext(ctx context.Context, defaultTimeout time.Duration) time.
 	return defaultTimeout
 }
 
-// reportOSErrors parses the OpenSearch bulk response and logs any indexing errors.
-// It returns the number of indexing errors found.
 // reportGRPCBulkErrors logs errors from gRPC BulkResponse and returns the count of failed items.
 func reportGRPCBulkErrors(resp *opensearchpb.BulkResponse) int {
 	if resp == nil || !resp.Errors {
@@ -357,7 +355,9 @@ func reportGRPCBulkErrors(resp *opensearchpb.BulkResponse) int {
 	return count
 }
 
-func (c *Client) reportOSErrors(data []byte) int {
+// reportErrors parses the OpenSearch bulk response and logs any indexing errors.
+// It returns the number of indexing errors found.
+func (c *Client) reportErrors(data []byte) int {
 	var response struct {
 		Errors bool                         `json:"errors"`
 		Items  []map[string]json.RawMessage `json:"items"`

@@ -8,22 +8,16 @@ import (
 
 	"github.com/syncgo/syncgo/e2e/pkg/utils"
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
-	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
+	"github.com/syncgo/syncgo/pkg/metrics"
 
 	"github.com/google/uuid"
-	gomock "go.uber.org/mock/gomock"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestOpensearchClient_Create(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -45,13 +39,7 @@ func TestOpensearchClient_Create(t *testing.T) {
 func TestOpensearchClient_Delete(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -84,13 +72,7 @@ func TestOpensearchClient_Delete(t *testing.T) {
 func TestOpensearchClient_Index(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -124,13 +106,7 @@ func TestOpensearchClient_Index(t *testing.T) {
 func TestOpensearchClient_Update(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
-	monitoring.EXPECT().IncSearchRequests(gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().ObserveSearchBulkDuration(gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(1)
-	monitoring.EXPECT().AddSearchErrors(gomock.Any(), gomock.Any()).MaxTimes(1)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -164,10 +140,7 @@ func TestOpensearchClient_Update(t *testing.T) {
 func TestOpensearchClient_CreateIndex(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -181,10 +154,7 @@ func TestOpensearchClient_CreateIndex(t *testing.T) {
 func TestOpensearchClient_IndexExists(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 

@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/syncgo/syncgo/pkg/config"
+	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
-	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/mock/gomock"
 )
 
 func TestGRPC(t *testing.T) {
@@ -25,10 +25,7 @@ func TestGRPC(t *testing.T) {
 		os.Exit(1)
 	}
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	monitoring := mocks.NewMockMonitoring(ctrl)
+	monitoring := metrics.New(prometheus.NewRegistry())
 
 	client, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Name:              cfg.SearchEngine.Name,
