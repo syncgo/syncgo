@@ -40,37 +40,37 @@ func (m *MockMonitoring) EXPECT() *MockMonitoringMockRecorder {
 }
 
 // AddSearchErrors mocks base method.
-func (m *MockMonitoring) AddSearchErrors(backend string, errorsCount float64) {
+func (m *MockMonitoring) AddSearchErrors(errorsCount float64) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AddSearchErrors", backend, errorsCount)
+	m.ctrl.Call(m, "AddSearchErrors", errorsCount)
 }
 
 // AddSearchErrors indicates an expected call of AddSearchErrors.
-func (mr *MockMonitoringMockRecorder) AddSearchErrors(backend, errorsCount any) *gomock.Call {
+func (mr *MockMonitoringMockRecorder) AddSearchErrors(errorsCount any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSearchErrors", reflect.TypeOf((*MockMonitoring)(nil).AddSearchErrors), backend, errorsCount)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSearchErrors", reflect.TypeOf((*MockMonitoring)(nil).AddSearchErrors), errorsCount)
 }
 
 // IncSearchRequests mocks base method.
-func (m *MockMonitoring) IncSearchRequests(backend, status string) {
+func (m *MockMonitoring) IncSearchRequests(status string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "IncSearchRequests", backend, status)
+	m.ctrl.Call(m, "IncSearchRequests", status)
 }
 
 // IncSearchRequests indicates an expected call of IncSearchRequests.
-func (mr *MockMonitoringMockRecorder) IncSearchRequests(backend, status any) *gomock.Call {
+func (mr *MockMonitoringMockRecorder) IncSearchRequests(status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncSearchRequests", reflect.TypeOf((*MockMonitoring)(nil).IncSearchRequests), backend, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncSearchRequests", reflect.TypeOf((*MockMonitoring)(nil).IncSearchRequests), status)
 }
 
 // ObserveSearchBulkDuration mocks base method.
-func (m *MockMonitoring) ObserveSearchBulkDuration(backend, status string, seconds float64) {
+func (m *MockMonitoring) ObserveSearchBulkDuration(status string, seconds float64) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "ObserveSearchBulkDuration", backend, status, seconds)
+	m.ctrl.Call(m, "ObserveSearchBulkDuration", status, seconds)
 }
 
 // ObserveSearchBulkDuration indicates an expected call of ObserveSearchBulkDuration.
-func (mr *MockMonitoringMockRecorder) ObserveSearchBulkDuration(backend, status, seconds any) *gomock.Call {
+func (mr *MockMonitoringMockRecorder) ObserveSearchBulkDuration(status, seconds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ObserveSearchBulkDuration", reflect.TypeOf((*MockMonitoring)(nil).ObserveSearchBulkDuration), backend, status, seconds)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ObserveSearchBulkDuration", reflect.TypeOf((*MockMonitoring)(nil).ObserveSearchBulkDuration), status, seconds)
 }
