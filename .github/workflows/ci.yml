@@ -100,7 +100,7 @@ jobs:
             ! -name '*.pb.gw.go' \
             ! -name '*_mock.go' \
             ! -name 'mocks.go' \
-            -exec goimports -w -local 'github.com/syncgo/syncgo' {} +
+            -exec goimports -w -local 'github.com/syncgo' {} +
           if [ -n "$(git status --porcelain)" ]; then
             echo 'Codebase is not goimports-ed.'
             git --no-pager diff
