@@ -3,7 +3,7 @@
 E2E_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 E2E_COMPOSE_FILE := $(E2E_DIR)docker-compose.yml
 SEARCH_HEALTH_URL := http://localhost:9200
-E2E_TEST := go test -v -tags e2e_pipeline -timeout 5m ./e2e/pipeline/...
+E2E_TEST := go test -v -tags e2e -timeout 5m ./e2e/pipeline/...
 
 prepare:
 	docker compose -f "$(E2E_COMPOSE_FILE)" up -d
