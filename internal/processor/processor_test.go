@@ -48,7 +48,7 @@ func TestProcessor_Shutdown_FlushesBatcher(t *testing.T) {
 	mockSender := batchermocks.NewMockBulkSender(ctrl)
 	mockSender.EXPECT().Bulk(gomock.Any(), bulk_transformer.DataPayload{testData("a")}).Return(nil)
 
-	b := batcher.NewBatcher(context.Background(), 10, 0, mockSender, nil)
+	b := batcher.NewBatcher(context.Background(), batcher.Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, mockSender)
 	b.Add(testData("a"))
 	b.Commit()
 
@@ -89,8 +89,7 @@ func TestProcessor_Shutdown_MetricsDisabled(t *testing.T) {
 
 func TestProcessor_Shutdown_Idempotent(t *testing.T) {
 	sender := &testBulkSender{}
-
-	b := batcher.NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := batcher.NewBatcher(context.Background(), batcher.Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 	b.Add(testData("a"))
 	b.Commit()
 

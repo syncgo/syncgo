@@ -402,18 +402,24 @@ The batcher controls how PostgreSQL changes are accumulated before being sent to
 batcher:
   size: 100
   flush_interval: 50ms
+  flush_max_retries: 3
+  flush_retry_timeout: 1s
 ```
 
-| Parameter        | Description                                                       |
-| ---------------- | ----------------------------------------------------------------- |
-| `size`           | Maximum number of buffered changes before a size-triggered flush  |
-| `flush_interval` | Maximum idle period before buffered committed changes are flushed |
+| Parameter              | Description                                                              |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `size`                 | Maximum number of buffered changes before a size-triggered flush         |
+| `flush_interval`       | Maximum idle period before buffered committed changes are flushed        |
+| `flush_max_retries`    | Extra attempts made after a failed flush before giving up                |
+| `flush_retry_timeout`  | Delay between flush retry attempts                                       |
 
 The default values are:
 
 ```text
 size: 100
 flush_interval: 50ms
+flush_max_retries: 3
+flush_retry_timeout: 1s
 ```
 
 These defaults are defined in the configuration package.
@@ -464,6 +470,24 @@ flush_interval: 0
 However, for normal production workloads it is recommended to keep the interval enabled.
 
 The batcher flushes committed records and retains records that have not yet been successfully committed.
+
+## Flush retries
+
+If a flush fails (a bulk request error or a timeout from the HTTP client), the batcher retries it:
+
+```yaml
+batcher:
+  flush_max_retries: 3
+  flush_retry_timeout: 1s
+```
+
+The batcher waits `flush_retry_timeout` between attempts, up to `flush_max_retries` extra tries after the
+initial one. Buffered committed records are kept until a flush succeeds, so no data is lost while retrying.
+
+If every attempt fails, the flush error is returned to the caller (surfaced on shutdown) and reported via:
+
+* `syncgo_batcher_flush_retries_total` — incremented for every retry attempt
+* `syncgo_batcher_flush_failures_total` — incremented when all retries are exhausted
 
 ---
 

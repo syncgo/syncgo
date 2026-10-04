@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -84,7 +85,9 @@ func (p *Processor) shutdown() error {
 	var errs []error
 
 	if p.batcher != nil {
-		p.batcher.Flush()
+		if err := p.batcher.Flush(); err != nil {
+			errs = append(errs, fmt.Errorf("final batcher flush: %w", err))
+		}
 	}
 
 	if p.replication != nil {
@@ -111,11 +114,18 @@ func (p *Processor) shutdown() error {
 }
 
 func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender, monitoring *metrics.Metrics) *batcher.Batcher {
-	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender, monitoring)
+	b := batcher.NewBatcher(ctx, batcher.Config{
+		BufferSize:   cfg.Size,
+		FlushTimeout: cfg.FlushInterval,
+		MaxRetries:   cfg.FlushMaxRetries,
+		RetryTimeout: cfg.FlushRetryTimeout,
+	}, monitoring, monitoring, sender)
 
 	slog.Info("batcher initialized",
 		slog.Int("size", cfg.Size),
 		slog.Duration("flush_interval", cfg.FlushInterval),
+		slog.Int("flush_max_retries", cfg.FlushMaxRetries),
+		slog.Duration("flush_retry_timeout", cfg.FlushRetryTimeout),
 	)
 
 	return b

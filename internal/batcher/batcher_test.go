@@ -11,16 +11,20 @@ import (
 )
 
 type mockSender struct {
-	mu       sync.Mutex
-	payloads [][]bulk_transformer.Data
-	err      error
+	mu        sync.Mutex
+	payloads  [][]bulk_transformer.Data
+	err       error
+	failTimes int
+	calls     int
 }
 
 func (m *mockSender) Bulk(ctx context.Context, payload bulk_transformer.DataPayload) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.err != nil {
+	m.calls++
+
+	if m.err != nil && (m.failTimes == 0 || m.calls <= m.failTimes) {
 		return m.err
 	}
 
@@ -29,6 +33,24 @@ func (m *mockSender) Bulk(ctx context.Context, payload bulk_transformer.DataPayl
 	m.payloads = append(m.payloads, cp)
 
 	return nil
+}
+
+type fakeMonitoring struct {
+	mu       sync.Mutex
+	retries  int
+	failures int
+}
+
+func (f *fakeMonitoring) IncFlushRetry() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retries++
+}
+
+func (f *fakeMonitoring) IncFlushFailure() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failures++
 }
 
 func data(v string) bulk_transformer.Data {
@@ -41,14 +63,13 @@ func data(v string) bulk_transformer.Data {
 
 func TestBatcher_AddCommitFlush(t *testing.T) {
 	sender := &mockSender{}
-
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
 	b.Commit()
 	b.Commit()
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 1 {
 		t.Fatalf("expected 1 bulk call, got %d", len(sender.payloads))
@@ -62,11 +83,10 @@ func TestBatcher_AddCommitFlush(t *testing.T) {
 
 func TestBatcher_FlushWithoutCommit(t *testing.T) {
 	sender := &mockSender{}
-
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 0 {
 		t.Fatalf("expected no flush")
@@ -75,7 +95,7 @@ func TestBatcher_FlushWithoutCommit(t *testing.T) {
 
 func TestBatcher_PartialCommitFlush(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -84,7 +104,7 @@ func TestBatcher_PartialCommitFlush(t *testing.T) {
 	b.Commit()
 	b.Commit()
 
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 1 {
 		t.Fatalf("expected 1 flush")
@@ -94,7 +114,6 @@ func TestBatcher_PartialCommitFlush(t *testing.T) {
 		t.Fatalf("expected 2 committed items")
 	}
 
-	// remaining item should stay buffered
 	if len(b.buffer) != 1 {
 		t.Fatalf("expected 1 remaining item, got %d", len(b.buffer))
 	}
@@ -102,7 +121,7 @@ func TestBatcher_PartialCommitFlush(t *testing.T) {
 
 func TestBatcher_RollbackLastUncommitted(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -115,7 +134,7 @@ func TestBatcher_RollbackLastUncommitted(t *testing.T) {
 
 func TestBatcher_RollbackCommittedDoesNothing(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -130,11 +149,14 @@ func TestBatcher_FlushFailureKeepsBuffer(t *testing.T) {
 	sender := &mockSender{
 		err: errors.New("bulk failed"),
 	}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Commit()
-	b.Flush()
+
+	if err := b.Flush(); err == nil {
+		t.Fatalf("expected error from failed flush")
+	}
 
 	if len(b.buffer) != 1 {
 		t.Fatalf("buffer should remain on failed flush")
@@ -145,9 +167,133 @@ func TestBatcher_FlushFailureKeepsBuffer(t *testing.T) {
 	}
 }
 
+func TestBatcher_FlushRetriesAndSucceeds(t *testing.T) {
+	sender := &mockSender{err: errors.New("timeout"), failTimes: 2}
+	monitoring := &fakeMonitoring{}
+	b := NewBatcher(context.Background(), Config{
+		BufferSize:   10,
+		MaxRetries:   3,
+		RetryTimeout: 10 * time.Millisecond,
+	}, monitoring, nil, sender)
+
+	b.Add(data("a"))
+	b.Commit()
+
+	if err := b.Flush(); err != nil {
+		t.Fatalf("expected flush to succeed after retries, got: %v", err)
+	}
+
+	if len(sender.payloads) != 1 {
+		t.Fatalf("expected 1 successful bulk call, got %d", len(sender.payloads))
+	}
+
+	if sender.calls != 3 {
+		t.Fatalf("expected 3 attempts (2 failures + 1 success), got %d", sender.calls)
+	}
+
+	monitoring.mu.Lock()
+	retries := monitoring.retries
+	failures := monitoring.failures
+	monitoring.mu.Unlock()
+
+	if retries != 2 {
+		t.Fatalf("expected 2 retries reported, got %d", retries)
+	}
+	if failures != 0 {
+		t.Fatalf("expected no failure reported after eventual success, got %d", failures)
+	}
+
+	if len(b.buffer) != 0 {
+		t.Fatalf("buffer should be drained after successful flush")
+	}
+}
+
+func TestBatcher_FlushExhaustsRetries(t *testing.T) {
+	sender := &mockSender{err: errors.New("timeout"), failTimes: 100}
+	monitoring := &fakeMonitoring{}
+	b := NewBatcher(context.Background(), Config{
+		BufferSize:   10,
+		MaxRetries:   2,
+		RetryTimeout: 5 * time.Millisecond,
+	}, monitoring, nil, sender)
+
+	b.Add(data("a"))
+	b.Commit()
+
+	if err := b.Flush(); err == nil {
+		t.Fatalf("expected error after exhausting retries")
+	}
+
+	if sender.calls != 3 {
+		t.Fatalf("expected 3 attempts (1 + 2 retries), got %d", sender.calls)
+	}
+
+	if len(b.buffer) != 1 {
+		t.Fatalf("buffer should remain after exhausted retries")
+	}
+
+	monitoring.mu.Lock()
+	retries := monitoring.retries
+	failures := monitoring.failures
+	monitoring.mu.Unlock()
+
+	if retries != 2 {
+		t.Fatalf("expected 2 retries reported, got %d", retries)
+	}
+	if failures != 1 {
+		t.Fatalf("expected 1 failure reported, got %d", failures)
+	}
+}
+
+func TestBatcher_FlushNoRetriesByDefault(t *testing.T) {
+	sender := &mockSender{err: errors.New("timeout"), failTimes: 100}
+	b := NewBatcher(context.Background(), Config{BufferSize: 10}, nil, nil, sender)
+
+	b.Add(data("a"))
+	b.Commit()
+
+	if err := b.Flush(); err == nil {
+		t.Fatalf("expected error")
+	}
+
+	if sender.calls != 1 {
+		t.Fatalf("expected a single attempt when MaxRetries is 0, got %d", sender.calls)
+	}
+}
+
+func TestBatcher_FlushRetryStopsOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sender := &mockSender{err: errors.New("timeout"), failTimes: 100}
+	b := NewBatcher(ctx, Config{
+		BufferSize:   10,
+		MaxRetries:   5,
+		RetryTimeout: 200 * time.Millisecond,
+	}, nil, nil, sender)
+
+	b.Add(data("a"))
+	b.Commit()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- b.Flush()
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("expected error after context cancellation")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("Flush did not return after context cancellation")
+	}
+}
+
 func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 2, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 2, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -155,7 +301,6 @@ func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 	b.Add(data("b"))
 	b.Commit()
 
-	// next add should trigger auto flush
 	b.Add(data("c"))
 
 	if len(sender.payloads) != 1 {
@@ -173,17 +318,17 @@ func TestBatcher_AutoFlushOnBufferFull(t *testing.T) {
 
 func TestBatcher_MultipleFlushes(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
 	b.Commit()
 	b.Commit()
-	b.Flush()
+	_ = b.Flush()
 
 	b.Add(data("c"))
 	b.Commit()
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 2 {
 		t.Fatalf("expected 2 flushes")
@@ -200,14 +345,14 @@ func TestBatcher_MultipleFlushes(t *testing.T) {
 
 func TestBatcher_CommitMoreThanBuffer(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Commit()
 	b.Commit()
 	b.Commit()
 
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 1 {
 		t.Fatalf("expected single flush")
@@ -220,9 +365,9 @@ func TestBatcher_CommitMoreThanBuffer(t *testing.T) {
 
 func TestBatcher_FlushEmpty(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 0 {
 		t.Fatalf("expected no payload")
@@ -231,7 +376,7 @@ func TestBatcher_FlushEmpty(t *testing.T) {
 
 func TestBatcher_RollbackEmpty(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Rollback()
 
@@ -242,13 +387,13 @@ func TestBatcher_RollbackEmpty(t *testing.T) {
 
 func TestBatcher_AutoFlushOnBufferFull_VerifyData(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 2, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 2, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("x"))
 	b.Commit()
 	b.Add(data("y"))
 	b.Commit()
-	b.Add(data("z")) // triggers auto flush of x, y
+	b.Add(data("z"))
 
 	if len(sender.payloads) != 1 {
 		t.Fatalf("expected 1 auto flush, got %d", len(sender.payloads))
@@ -268,7 +413,7 @@ func TestBatcher_AutoFlushOnBufferFull_VerifyData(t *testing.T) {
 func TestBatcher_AutoFlushOnTimeout(t *testing.T) {
 	sender := &mockSender{}
 	ctx := context.Background()
-	b := NewBatcher(ctx, 100, 50*time.Millisecond, sender, nil)
+	b := NewBatcher(ctx, Config{BufferSize: 100, FlushTimeout: 50 * time.Millisecond}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Commit()
@@ -287,32 +432,25 @@ func TestBatcher_AutoFlushOnTimeout(t *testing.T) {
 	}
 }
 
-// TestBatcher_TimeoutResetAfterSizeFlush verifies that a size-triggered flush
-// resets the idle timer so the timeout flush does not fire again immediately.
 func TestBatcher_TimeoutResetAfterSizeFlush(t *testing.T) {
 	sender := &mockSender{}
 	ctx := context.Background()
-	b := NewBatcher(ctx, 2, 300*time.Millisecond, sender, nil)
+	b := NewBatcher(ctx, Config{BufferSize: 2, FlushTimeout: 300 * time.Millisecond}, nil, nil, sender)
 
-	// Start the loop with a 300ms interval, then wait 100ms so the first tick
-	// is 200ms away when the size flush happens below.
 	time.Sleep(100 * time.Millisecond)
 
-	// Trigger a size flush at ~t=100ms.
 	b.Add(data("p"))
 	b.Commit()
 	b.Add(data("q"))
 	b.Commit()
-	b.Add(data("r")) // size flush of p, q
-	b.Commit()       // commit r so it will be sent on the next flush
+	b.Add(data("r"))
+	b.Commit()
 
 	if len(sender.payloads) != 1 {
 		t.Fatalf("expected size flush, got %d", len(sender.payloads))
 	}
 
-	// The ticker fires at t=300ms. Since the size flush happened at ~t=100ms,
-	// time.Since(lastFlushTime) ≈ 200ms < 300ms → no timer flush.
-	time.Sleep(250 * time.Millisecond) // now at ~t=350ms; tick fired but was suppressed
+	time.Sleep(250 * time.Millisecond)
 
 	sender.mu.Lock()
 	n := len(sender.payloads)
@@ -321,8 +459,7 @@ func TestBatcher_TimeoutResetAfterSizeFlush(t *testing.T) {
 		t.Fatalf("expected no timer flush shortly after size flush, got %d", n)
 	}
 
-	// Next tick at t=600ms: time.Since(100ms) ≈ 500ms >= 300ms → flush r.
-	time.Sleep(350 * time.Millisecond) // now at ~t=700ms
+	time.Sleep(350 * time.Millisecond)
 
 	sender.mu.Lock()
 	n = len(sender.payloads)
@@ -337,7 +474,7 @@ func TestBatcher_TimeoutResetAfterSizeFlush(t *testing.T) {
 
 func TestBatcher_CommitNRollbackN(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -345,7 +482,7 @@ func TestBatcher_CommitNRollbackN(t *testing.T) {
 
 	b.CommitN(2)
 	b.RollbackN(1)
-	b.Flush()
+	_ = b.Flush()
 
 	if len(sender.payloads) != 1 {
 		t.Fatalf("expected 1 flush, got %d", len(sender.payloads))
@@ -358,7 +495,7 @@ func TestBatcher_CommitNRollbackN(t *testing.T) {
 
 func TestBatcher_OrderPreserved(t *testing.T) {
 	sender := &mockSender{}
-	b := NewBatcher(context.Background(), 10, 0, sender, nil)
+	b := NewBatcher(context.Background(), Config{BufferSize: 10, FlushTimeout: 0}, nil, nil, sender)
 
 	b.Add(data("a"))
 	b.Add(data("b"))
@@ -368,7 +505,7 @@ func TestBatcher_OrderPreserved(t *testing.T) {
 	b.Commit()
 	b.Commit()
 
-	b.Flush()
+	_ = b.Flush()
 
 	got := sender.payloads[0]
 

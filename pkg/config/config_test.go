@@ -156,6 +156,29 @@ func TestConfig_BatcherDefaults(t *testing.T) {
 	if cfg.Batcher.FlushInterval != 50*time.Millisecond {
 		t.Errorf("expected default flush_interval 50ms, got %v", cfg.Batcher.FlushInterval)
 	}
+	if cfg.Batcher.FlushMaxRetries != 3 {
+		t.Errorf("expected default flush_max_retries 3, got %d", cfg.Batcher.FlushMaxRetries)
+	}
+	if cfg.Batcher.FlushRetryTimeout != time.Second {
+		t.Errorf("expected default flush_retry_timeout 1s, got %v", cfg.Batcher.FlushRetryTimeout)
+	}
+}
+
+func TestConfig_BatcherRetryConfigured(t *testing.T) {
+	cfg := &Config{
+		PostgreSQL:   PostgreSQLConfig{SlotName: "wasd", PublicationName: "wasd"},
+		SearchEngine: SearchEngineConfig{Name: elasticsearch, Address: "http://localhost:9200"},
+		Batcher:      BatcherConfig{Size: 100, FlushMaxRetries: 5, FlushRetryTimeout: 2 * time.Second},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Batcher.FlushMaxRetries != 5 {
+		t.Errorf("expected configured flush_max_retries 5, got %d", cfg.Batcher.FlushMaxRetries)
+	}
+	if cfg.Batcher.FlushRetryTimeout != 2*time.Second {
+		t.Errorf("expected configured flush_retry_timeout 2s, got %v", cfg.Batcher.FlushRetryTimeout)
+	}
 }
 
 func TestLoadFromYAML(t *testing.T) {

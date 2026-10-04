@@ -55,6 +55,54 @@ func (mr *MockBulkSenderMockRecorder) Bulk(ctx, data any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Bulk", reflect.TypeOf((*MockBulkSender)(nil).Bulk), ctx, data)
 }
 
+// MockFlushMonitoring is a mock of FlushMonitoring interface.
+type MockFlushMonitoring struct {
+	ctrl     *gomock.Controller
+	recorder *MockFlushMonitoringMockRecorder
+	isgomock struct{}
+}
+
+// MockFlushMonitoringMockRecorder is the mock recorder for MockFlushMonitoring.
+type MockFlushMonitoringMockRecorder struct {
+	mock *MockFlushMonitoring
+}
+
+// NewMockFlushMonitoring creates a new mock instance.
+func NewMockFlushMonitoring(ctrl *gomock.Controller) *MockFlushMonitoring {
+	mock := &MockFlushMonitoring{ctrl: ctrl}
+	mock.recorder = &MockFlushMonitoringMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockFlushMonitoring) EXPECT() *MockFlushMonitoringMockRecorder {
+	return m.recorder
+}
+
+// IncFlushFailure mocks base method.
+func (m *MockFlushMonitoring) IncFlushFailure() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncFlushFailure")
+}
+
+// IncFlushFailure indicates an expected call of IncFlushFailure.
+func (mr *MockFlushMonitoringMockRecorder) IncFlushFailure() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncFlushFailure", reflect.TypeOf((*MockFlushMonitoring)(nil).IncFlushFailure))
+}
+
+// IncFlushRetry mocks base method.
+func (m *MockFlushMonitoring) IncFlushRetry() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncFlushRetry")
+}
+
+// IncFlushRetry indicates an expected call of IncFlushRetry.
+func (mr *MockFlushMonitoringMockRecorder) IncFlushRetry() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncFlushRetry", reflect.TypeOf((*MockFlushMonitoring)(nil).IncFlushRetry))
+}
+
 // MockMetrics is a mock of Metrics interface.
 type MockMetrics struct {
 	ctrl     *gomock.Controller

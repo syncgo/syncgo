@@ -10,6 +10,9 @@ type Metrics struct {
 	bulkDuration  *prometheus.HistogramVec
 
 	batcherBufferSize prometheus.Gauge
+
+	flushRetriesTotal  prometheus.Counter
+	flushFailuresTotal prometheus.Counter
 }
 
 func New(reg prometheus.Registerer) *Metrics {
@@ -41,6 +44,18 @@ func New(reg prometheus.Registerer) *Metrics {
 				Help: "Current number of buffered rows in the batcher, including uncommitted ones.",
 			},
 		),
+		flushRetriesTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "syncgo_batcher_flush_retries_total",
+				Help: "Total number of batcher flush retry attempts.",
+			},
+		),
+		flushFailuresTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "syncgo_batcher_flush_failures_total",
+				Help: "Total number of batcher flushes that failed after exhausting all retries.",
+			},
+		),
 	}
 
 	if reg == nil {
@@ -52,6 +67,8 @@ func New(reg prometheus.Registerer) *Metrics {
 		metrics.errorsTotal,
 		metrics.bulkDuration,
 		metrics.batcherBufferSize,
+		metrics.flushRetriesTotal,
+		metrics.flushFailuresTotal,
 	)
 
 	return metrics
@@ -74,4 +91,12 @@ func (m *Metrics) ObserveSearchBulkDuration(status string, seconds float64) {
 
 func (m *Metrics) SetBatcherBufferSize(n int) {
 	m.batcherBufferSize.Set(float64(n))
+}
+
+func (m *Metrics) IncFlushRetry() {
+	m.flushRetriesTotal.Inc()
+}
+
+func (m *Metrics) IncFlushFailure() {
+	m.flushFailuresTotal.Inc()
 }
