@@ -1,0 +1,17 @@
+{"time":"2026-10-04T17:01:46.994975687Z","level":"DEBUG","msg":"elasticsearch connection established successfully"}
+{"time":"2026-10-04T17:01:46.995204611Z","level":"INFO","msg":"batcher initialized","size":100,"flush_interval":50000000}
+{"time":"2026-10-04T17:01:47.0285847Z","level":"DEBUG","msg":"replication slot does not exist","slotName":"test_slot"}
+{"time":"2026-10-04T17:01:47.067074323Z","level":"INFO","msg":"created replication slot","name":"test_slot"}
+{"time":"2026-10-04T17:01:47.068372959Z","level":"INFO","msg":"successfully indentify system","sysetmID":"7692858588172460071","timeline":1,"xLogPos":"0/17D2CF8","dbName":"postgres"}
+{"time":"2026-10-04T17:01:47.069713999Z","level":"INFO","msg":"logical replication started","slotName":"test_slot"}
+{"time":"2026-10-04T17:01:47.070419573Z","level":"DEBUG","msg":"received copy data message","byte":"k"}
+{"time":"2026-10-04T17:01:47.070519983Z","level":"DEBUG","msg":"primary keepalive message","serverWALEnd":"0/17D2CF8","serverTime":"2026-10-04T17:01:47.069373Z","replyRequested":false}
+{"time":"2026-10-04T17:01:57.068661781Z","level":"DEBUG","msg":"received copy data message","byte":"k"}
+{"time":"2026-10-04T17:01:57.068784193Z","level":"DEBUG","msg":"primary keepalive message","serverWALEnd":"0/17D2CF8","serverTime":"2026-10-04T17:01:57.068016Z","replyRequested":false}
+{"time":"2026-10-04T17:02:07.192073754Z","level":"DEBUG","msg":"received copy data message","byte":"k"}
+{"time":"2026-10-04T17:02:07.192187565Z","level":"DEBUG","msg":"primary keepalive message","serverWALEnd":"0/17D2CF8","serverTime":"2026-10-04T17:02:07.191622Z","replyRequested":true}
+{"time":"2026-10-04T17:02:07.192270873Z","level":"DEBUG","msg":"sent standby status update","walWritePosition":24980728}
+{"time":"2026-10-04T17:02:07.192689413Z","level":"WARN","msg":"received unexpected message","type":"*pgproto3.CommandComplete"}
+{"time":"2026-10-04T17:02:07.192801724Z","level":"DEBUG","msg":"received message","message":"&{CommandTag:[67 79 80 89 32 48]}"}
+{"time":"2026-10-04T17:02:07.195905923Z","level":"ERROR","msg":"failed to receive message","err":"receive message failed: unexpected EOF"}
+{"time":"2026-10-04T17:02:07.196019434Z","level":"ERROR","msg":"failed to read replication messages","err":"receive message failed: unexpected EOF"}
