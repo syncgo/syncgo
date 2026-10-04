@@ -1,4 +1,5 @@
 ARG GO_VERSION=1.27
+ARG VERSION=dev
 
 FROM golang:${GO_VERSION}-alpine AS builder
 
@@ -12,7 +13,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -v -o syncgo cmd/syncgo/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -v -o syncgo cmd/syncgo/main.go
 
 FROM alpine AS runner
 

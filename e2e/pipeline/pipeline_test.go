@@ -1,4 +1,4 @@
-//go:build e2e
+//go:build e2e_pipeline
 
 package e2e
 
