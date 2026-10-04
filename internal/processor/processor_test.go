@@ -14,6 +14,7 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -43,10 +44,11 @@ func testData(v string) bulk_transformer.Data {
 
 func TestProcessor_Shutdown_FlushesBatcher(t *testing.T) {
 	ctrl := gomock.NewController(t)
+
 	mockSender := batchermocks.NewMockBulkSender(ctrl)
 	mockSender.EXPECT().Bulk(gomock.Any(), bulk_transformer.DataPayload{testData("a")}).Return(nil)
 
-	b := batcher.NewBatcher(context.Background(), 10, 0, mockSender)
+	b := batcher.NewBatcher(context.Background(), 10, 0, mockSender, nil)
 	b.Add(testData("a"))
 	b.Commit()
 
@@ -67,7 +69,7 @@ func TestProcessor_Shutdown_ClosesClient(t *testing.T) {
 		Name:              "test",
 		Address:           srv.URL,
 		ConnectionTimeout: 5 * time.Second,
-	}, metrics.New())
+	}, metrics.New(prometheus.NewRegistry()))
 	if err != nil {
 		t.Fatalf("search_engine_client.New: %v", err)
 	}
@@ -87,7 +89,8 @@ func TestProcessor_Shutdown_MetricsDisabled(t *testing.T) {
 
 func TestProcessor_Shutdown_Idempotent(t *testing.T) {
 	sender := &testBulkSender{}
-	b := batcher.NewBatcher(context.Background(), 10, 0, sender)
+
+	b := batcher.NewBatcher(context.Background(), 10, 0, sender, nil)
 	b.Add(testData("a"))
 	b.Commit()
 

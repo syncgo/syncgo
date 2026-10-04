@@ -4,14 +4,14 @@ postgresql:
   host: localhost
   port: 5432
   database: postgres
-  slot_name: test_slot
-  publication_name: test_publication
+  slot_name: sync_elastic_slot
+  publication_name: sync_elastic_pub
 search_engine:
   name: elasticsearch
   address: http://localhost:9200
   username: admin
   password: Es123456
-  index: test_index
+  index: sync_elastic_index
 batcher:
   size: 100
   flush_interval: 50ms

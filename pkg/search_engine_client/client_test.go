@@ -177,22 +177,22 @@ func TestReportGRPCBulkErrors(t *testing.T) {
 	}
 }
 
-// --- reportOSErrors ---
+// --- reportErrors ---
 
-func TestReportOSErrors(t *testing.T) {
+func TestReportErrors(t *testing.T) {
 	c := &Client{name: "test"}
 
-	if n := c.reportOSErrors([]byte("not-json")); n != 0 {
+	if n := c.reportErrors([]byte("not-json")); n != 0 {
 		t.Errorf("invalid json: %d", n)
 	}
 
 	noErr, _ := json.Marshal(map[string]interface{}{"errors": false})
-	if n := c.reportOSErrors(noErr); n != 0 {
+	if n := c.reportErrors(noErr); n != 0 {
 		t.Errorf("errors=false: %d", n)
 	}
 
 	emptyItems, _ := json.Marshal(map[string]interface{}{"errors": true, "items": []interface{}{}})
-	if n := c.reportOSErrors(emptyItems); n != 0 {
+	if n := c.reportErrors(emptyItems); n != 0 {
 		t.Errorf("empty items: %d", n)
 	}
 
@@ -201,7 +201,7 @@ func TestReportOSErrors(t *testing.T) {
 		"errors": true,
 		"items":  []interface{}{map[string]interface{}{}},
 	})
-	if n := c.reportOSErrors(nilAction); n != 0 {
+	if n := c.reportErrors(nilAction); n != 0 {
 		t.Errorf("empty item map: %d", n)
 	}
 
@@ -210,7 +210,7 @@ func TestReportOSErrors(t *testing.T) {
 		"errors": true,
 		"items":  []interface{}{map[string]interface{}{"index": []int{1, 2}}},
 	})
-	if n := c.reportOSErrors(badNode); n != 0 {
+	if n := c.reportErrors(badNode); n != 0 {
 		t.Errorf("bad action node: %d", n)
 	}
 
@@ -224,7 +224,7 @@ func TestReportOSErrors(t *testing.T) {
 			},
 		}},
 	})
-	if n := c.reportOSErrors(withError); n != 1 {
+	if n := c.reportErrors(withError); n != 1 {
 		t.Errorf("with error field: got %d", n)
 	}
 
@@ -235,7 +235,7 @@ func TestReportOSErrors(t *testing.T) {
 			"create": map[string]interface{}{"status": 503},
 		}},
 	})
-	if n := c.reportOSErrors(badStatus); n != 0 {
+	if n := c.reportErrors(badStatus); n != 0 {
 		t.Errorf("bad status no error field: got %d", n)
 	}
 }
@@ -472,7 +472,8 @@ func TestBulk_HTTP(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
-		mon.EXPECT().IncSearchRequests("test", "success")
+		mon.EXPECT().IncSearchRequests("success")
+		mon.EXPECT().ObserveSearchBulkDuration("success", gomock.Any())
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": false})
@@ -487,8 +488,9 @@ func TestBulk_HTTP(t *testing.T) {
 	t.Run("indexing errors in response", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
-		mon.EXPECT().AddSearchErrors("test", float64(1))
-		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().AddSearchErrors(float64(1))
+		mon.EXPECT().IncSearchRequests("fail")
+		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -511,7 +513,8 @@ func TestBulk_HTTP(t *testing.T) {
 	t.Run("network error", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
-		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().IncSearchRequests("fail")
+		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
 		c.index = "test_index"
@@ -532,7 +535,8 @@ func TestBulk_GRPC(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
-		mon.EXPECT().IncSearchRequests("test", "success")
+		mon.EXPECT().IncSearchRequests("success")
+		mon.EXPECT().ObserveSearchBulkDuration("success", gomock.Any())
 
 		c := &Client{
 			name:       "test",
@@ -549,7 +553,8 @@ func TestBulk_GRPC(t *testing.T) {
 	t.Run("grpc error", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
-		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().IncSearchRequests("fail")
+		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
 
 		c := &Client{
 			name:       "test",
@@ -566,8 +571,9 @@ func TestBulk_GRPC(t *testing.T) {
 	t.Run("indexing errors in response", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mon := mocks.NewMockMonitoring(ctrl)
-		mon.EXPECT().AddSearchErrors("test", float64(1))
-		mon.EXPECT().IncSearchRequests("test", "fail")
+		mon.EXPECT().AddSearchErrors(float64(1))
+		mon.EXPECT().IncSearchRequests("fail")
+		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
 
 		reason := "field type mismatch"
 		c := &Client{

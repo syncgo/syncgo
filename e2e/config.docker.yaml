@@ -1,20 +1,17 @@
 postgresql:
   user: postgres
   password: postgres
-  host: localhost
+  host: postgres # localhost (compose service_name)
   port: 5432
   database: postgres
   slot_name: test_slot
   publication_name: test_publication
 search_engine:
-  name: opensearch
-  address: http://localhost:9300
+  name: elasticsearch
+  address: http://elasticsearch:9200 # http://localhost:9200
   username: admin
-  password: Op3nS3arch!
+  password: Es123456
   index: test_index
-  grpc:
-    host: localhost
-    port: 50051
 batcher:
   size: 100
   flush_interval: 50ms
