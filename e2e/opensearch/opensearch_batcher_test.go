@@ -12,13 +12,12 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestBatcherWithOpensearch_FlushOnSize(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -54,7 +53,7 @@ func TestBatcherWithOpensearch_FlushOnSize(t *testing.T) {
 func TestBatcherWithOpensearch_Flush(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -77,7 +76,7 @@ func TestBatcherWithOpensearch_Flush(t *testing.T) {
 func TestBatcherWithOpensearch_DeleteAfterCreate(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 

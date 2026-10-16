@@ -11,13 +11,12 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestOpensearchClient_Create(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -39,7 +38,7 @@ func TestOpensearchClient_Create(t *testing.T) {
 func TestOpensearchClient_Delete(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -72,7 +71,7 @@ func TestOpensearchClient_Delete(t *testing.T) {
 func TestOpensearchClient_Index(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -106,7 +105,7 @@ func TestOpensearchClient_Index(t *testing.T) {
 func TestOpensearchClient_Update(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -140,7 +139,7 @@ func TestOpensearchClient_Update(t *testing.T) {
 func TestOpensearchClient_CreateIndex(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 
@@ -154,7 +153,7 @@ func TestOpensearchClient_CreateIndex(t *testing.T) {
 func TestOpensearchClient_IndexExists(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_opensearch.yaml", "opensearch")
 

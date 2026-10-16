@@ -12,13 +12,12 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestBatcherWithElasticsearch_FlushOnSize(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -54,7 +53,7 @@ func TestBatcherWithElasticsearch_FlushOnSize(t *testing.T) {
 func TestBatcherWithElasticsearch_Flush(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -77,7 +76,7 @@ func TestBatcherWithElasticsearch_Flush(t *testing.T) {
 func TestBatcherWithElasticsearch_DeleteAfterCreate(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 

@@ -14,7 +14,6 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -69,7 +68,7 @@ func TestProcessor_Shutdown_ClosesClient(t *testing.T) {
 		Name:              "test",
 		Address:           srv.URL,
 		ConnectionTimeout: 5 * time.Second,
-	}, metrics.New(prometheus.NewRegistry()))
+	}, metrics.DefaultMetrics)
 	if err != nil {
 		t.Fatalf("search_engine_client.New: %v", err)
 	}

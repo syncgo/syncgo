@@ -12,8 +12,6 @@ import (
 	"github.com/syncgo/syncgo/pkg/config"
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/postgresql"
-
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 const syncOpensearchTable = "sync_opensearch_rows"
@@ -36,7 +34,7 @@ func TestOpensearchSync_ReplicatesRowsFromPostgres(t *testing.T) {
 
 	utils.SetupTable(t, ctx, pgCfg, syncOpensearchTable, cfg.PostgreSQL.PublicationName)
 
-	p, err := processor.New(ctx, cfg, metrics.New(prometheus.NewRegistry()))
+	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
 	if err != nil {
 		t.Fatal("e2e; sync; opensearch; failed to init processor; error: ", err)
 	}

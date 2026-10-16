@@ -12,8 +12,6 @@ import (
 	"github.com/syncgo/syncgo/pkg/config"
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/postgresql"
-
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 const syncElasticTable = "sync_elastic_rows"
@@ -36,7 +34,7 @@ func TestElasticsearchSync_ReplicatesRowsFromPostgres(t *testing.T) {
 
 	utils.SetupTable(t, ctx, pgCfg, syncElasticTable, cfg.PostgreSQL.PublicationName)
 
-	p, err := processor.New(ctx, cfg, metrics.New(prometheus.NewRegistry()))
+	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
 	if err != nil {
 		t.Fatal("e2e; sync; elasticsearch; failed to init processor; error: ", err)
 	}

@@ -11,13 +11,12 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestElasticsearchClient_Create(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -40,7 +39,7 @@ func TestElasticsearchClient_Create(t *testing.T) {
 func TestElasticsearchClient_Delete(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -75,7 +74,7 @@ func TestElasticsearchClient_Delete(t *testing.T) {
 func TestElasticsearchClient_Index(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -111,7 +110,7 @@ func TestElasticsearchClient_Index(t *testing.T) {
 func TestElasticsearchClient_Update(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -147,7 +146,7 @@ func TestElasticsearchClient_Update(t *testing.T) {
 func TestElasticsearchClient_CreateIndex(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 
@@ -161,7 +160,7 @@ func TestElasticsearchClient_CreateIndex(t *testing.T) {
 func TestElasticsearchClient_IndexExists(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client := utils.NewSearchEngineClient(t, monitoring, "config_elasticsearch.yaml", "elasticsearch")
 

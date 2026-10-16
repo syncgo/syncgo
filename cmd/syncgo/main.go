@@ -71,9 +71,7 @@ func run(args []string) error {
 		os.Exit(1)
 	}
 
-	monitoring := metrics.New(nil)
-
-	p, err := processor.New(ctx, cfg, monitoring)
+	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
 	if err != nil {
 		slog.Error("failed to initialize processor", slog.String("err", err.Error()))
 		os.Exit(1)

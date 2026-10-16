@@ -17,7 +17,6 @@ import (
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
 
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 )
 
@@ -189,7 +188,7 @@ func newGRPCOpensearchClient(t *testing.T, monitoring search_engine_client.Monit
 func TestOpensearchClientGRPC_Create(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()
@@ -213,7 +212,7 @@ func TestOpensearchClientGRPC_Create(t *testing.T) {
 func TestOpensearchClientGRPC_Index(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()
@@ -243,7 +242,7 @@ func TestOpensearchClientGRPC_Index(t *testing.T) {
 func TestOpensearchClientGRPC_Update(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()
@@ -273,7 +272,7 @@ func TestOpensearchClientGRPC_Update(t *testing.T) {
 func TestOpensearchClientGRPC_Delete(t *testing.T) {
 	ctx := context.Background()
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 	client := newGRPCOpensearchClient(t, monitoring)
 
 	id := uuid.New().String()

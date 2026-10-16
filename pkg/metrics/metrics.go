@@ -12,7 +12,9 @@ type Metrics struct {
 	batcherBufferSize prometheus.Gauge
 }
 
-func New(reg prometheus.Registerer) *Metrics {
+var DefaultMetrics = newMetrics()
+
+func newMetrics() *Metrics {
 	metrics := &Metrics{
 		requestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -43,11 +45,7 @@ func New(reg prometheus.Registerer) *Metrics {
 		),
 	}
 
-	if reg == nil {
-		reg = prometheus.DefaultRegisterer
-	}
-
-	reg.MustRegister(
+	prometheus.MustRegister(
 		metrics.requestsTotal,
 		metrics.errorsTotal,
 		metrics.bulkDuration,

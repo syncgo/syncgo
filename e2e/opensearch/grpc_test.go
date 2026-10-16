@@ -12,7 +12,6 @@ import (
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,7 +24,7 @@ func TestGRPC(t *testing.T) {
 		os.Exit(1)
 	}
 
-	monitoring := metrics.New(prometheus.NewRegistry())
+	monitoring := metrics.DefaultMetrics
 
 	client, err := search_engine_client.New(ctx, search_engine_client.Config{
 		Name:              cfg.SearchEngine.Name,
