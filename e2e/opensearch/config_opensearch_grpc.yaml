@@ -6,6 +6,8 @@ postgresql:
   database: postgres
   slot_name: test_slot
   publication_name: test_publication
+  tables:
+    - public.test
 search_engine:
   name: opensearch
   address: http://localhost:9300

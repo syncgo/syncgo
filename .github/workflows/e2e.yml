@@ -36,6 +36,9 @@ jobs:
       - name: Build syncgo binary
         run: go build -o syncgo ./cmd/syncgo
 
+      - name: Prepare syncgo resources
+        run: ./syncgo prepare --config e2e/config.yaml
+
       - name: Run syncgo binary
         run: ./syncgo run --config e2e/config.yaml > syncgo.log 2>&1 &
 
@@ -68,6 +71,13 @@ jobs:
 
       - name: Build syncgo image
         run: docker build -t syncgo:e2e .
+
+      - name: Prepare syncgo resources
+        run: |
+          docker run --rm --name syncgo-prepare \
+            --network e2e_syncgo-network \
+            -v "$PWD/e2e/config.docker.yaml:/etc/syncgo/config.yaml" \
+            syncgo:e2e prepare --config /etc/syncgo/config.yaml
 
       - name: Run syncgo image
         run: |

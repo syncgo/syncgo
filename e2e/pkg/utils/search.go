@@ -76,3 +76,16 @@ func FetchDocument(t *testing.T, address, index, id string) (map[string]any, boo
 
 	return body.Source, true
 }
+
+// DoRequest performs an HTTP request and returns the response for callers
+// that need to inspect the status code or body themselves.
+func DoRequest(t *testing.T, method, url string) (*http.Response, error) {
+	t.Helper()
+
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return http.DefaultClient.Do(req)
+}

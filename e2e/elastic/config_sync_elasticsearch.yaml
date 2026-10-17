@@ -6,6 +6,8 @@ postgresql:
   database: postgres
   slot_name: sync_elastic_slot
   publication_name: sync_elastic_pub
+  tables:
+    - public.sync_elastic_rows
 search_engine:
   name: elasticsearch
   address: http://localhost:9200

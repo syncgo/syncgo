@@ -6,6 +6,8 @@ postgresql:
   database: postgres
   slot_name: sync_opensearch_slot
   publication_name: sync_opensearch_pub
+  tables:
+    - public.sync_opensearch_rows
 search_engine:
   name: opensearch
   address: http://localhost:9300

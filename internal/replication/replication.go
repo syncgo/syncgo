@@ -70,10 +70,6 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 	replicationConn.plugin = "pgoutput"
 	replicationConn.pluginArgs = replicationConn.buildPluginArgs()
 
-	if err := replicationConn.validateReplicationSetup(ctx, cfg); err != nil {
-		return nil, err
-	}
-
 	sysident, err := pglogrepl.IdentifySystem(ctx, conn)
 	if err != nil {
 		slog.Error("failed to identify system", slog.String("err", err.Error()))
@@ -252,45 +248,6 @@ func (c *LogicalReplicationConn) sendStandbyStatusUpdate(ctx context.Context) er
 	}
 
 	slog.Debug("sent standby status update", slog.Any("walWritePosition", clientXLogPos))
-
-	return nil
-}
-
-func (c *LogicalReplicationConn) validateReplicationSetup(ctx context.Context, cfg LogicalRepicationConfig) error {
-	adminConn, err := postgresql.NewStandard(ctx, cfg.DB)
-	if err != nil {
-		return fmt.Errorf("failed to connect for replication setup validation: %w", err)
-	}
-	defer func() {
-		if closeErr := adminConn.Close(ctx); closeErr != nil {
-			slog.Error("failed to close admin connection", slog.String("err", closeErr.Error()))
-		}
-	}()
-
-	slotExists, err := postgresql.ReplicationSlotExists(ctx, adminConn, cfg.SlotName)
-	if err != nil {
-		return fmt.Errorf("failed to check replication slot %q: %w", cfg.SlotName, err)
-	}
-	if !slotExists {
-		slog.Debug("replication slot does not exist", slog.String("slotName", cfg.SlotName))
-		if err = c.createReplicationSlot(ctx, cfg.SlotName); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (c *LogicalReplicationConn) createReplicationSlot(ctx context.Context, slotName string) error {
-	_, err := pglogrepl.CreateReplicationSlot(ctx, c.conn, slotName, c.plugin, pglogrepl.CreateReplicationSlotOptions{
-		Mode: pglogrepl.LogicalReplication,
-	})
-	if err != nil {
-		slog.Error("failed to create slot", slog.String("err", err.Error()))
-		return err
-	}
-
-	slog.Info("created replication slot", slog.String("name", slotName))
 
 	return nil
 }

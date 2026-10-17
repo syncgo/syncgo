@@ -8,10 +8,6 @@ import (
 	"time"
 
 	"github.com/syncgo/syncgo/e2e/pkg/utils"
-	"github.com/syncgo/syncgo/internal/processor"
-	"github.com/syncgo/syncgo/pkg/config"
-	"github.com/syncgo/syncgo/pkg/metrics"
-	"github.com/syncgo/syncgo/pkg/postgresql"
 )
 
 const syncOpensearchTable = "sync_opensearch_rows"
@@ -19,35 +15,12 @@ const syncOpensearchTable = "sync_opensearch_rows"
 func TestOpensearchSync_ReplicatesRowsFromPostgres(t *testing.T) {
 	ctx := context.Background()
 
-	cfg, err := config.LoadFromYAML("config_sync_opensearch.yaml")
-	if err != nil {
-		t.Fatal("e2e; sync; opensearch; failed to load config; error: ", err)
-	}
+	cfg := utils.LoadConfigFrom(t, "config_sync_opensearch.yaml")
+	pgCfg := utils.PgConfigFrom(cfg)
 
-	pgCfg := postgresql.Config{
-		User:     cfg.PostgreSQL.User,
-		Password: cfg.PostgreSQL.Password,
-		Host:     cfg.PostgreSQL.Host,
-		Port:     cfg.PostgreSQL.Port,
-		Database: cfg.PostgreSQL.Database,
-	}
+	utils.SetupTable(t, ctx, pgCfg, syncOpensearchTable)
 
-	utils.SetupTable(t, ctx, pgCfg, syncOpensearchTable, cfg.PostgreSQL.PublicationName)
-
-	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
-	if err != nil {
-		t.Fatal("e2e; sync; opensearch; failed to init processor; error: ", err)
-	}
-
-	runCtx, runCancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
-	go func() {
-		done <- p.Run(runCtx)
-	}()
-	defer func() {
-		runCancel()
-		<-done
-	}()
+	utils.RunProcessor(t, ctx, cfg)
 
 	utils.InsertRow(t, ctx, pgCfg, syncOpensearchTable, 1, "foo")
 	utils.InsertRow(t, ctx, pgCfg, syncOpensearchTable, 2, "bar")

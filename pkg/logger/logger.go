@@ -38,3 +38,8 @@ func configLevel() slog.Level {
 
 	return logLevel
 }
+
+// Error logs msg with the error's message under the "err" key.
+func Error(msg string, err error) {
+	slog.Error(msg, slog.String("err", err.Error()))
+}

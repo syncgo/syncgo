@@ -61,6 +61,10 @@ type PostgreSQLConfig struct {
 	PublicationName string `yaml:"publication_name"`
 	SlotName        string `yaml:"slot_name"`
 	IDColumn        string `yaml:"id_column"`
+	// Tables is the list of schema-qualified tables (e.g. public.users) added
+	// to the publication by the prepare command. Empty means the publication
+	// is managed externally.
+	Tables []string `yaml:"tables"`
 }
 
 // SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).

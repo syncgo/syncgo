@@ -6,6 +6,8 @@ postgresql:
   database: postgres
   slot_name: test_slot
   publication_name: test_publication
+  tables:
+    - public.test
 search_engine:
   name: elasticsearch
   address: http://elasticsearch:9200 # http://localhost:9200

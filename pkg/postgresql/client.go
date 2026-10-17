@@ -3,7 +3,8 @@ package postgresql
 import (
 	"context"
 	"fmt"
-	"log/slog"
+
+	"github.com/syncgo/syncgo/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -27,15 +28,13 @@ func New(ctx context.Context, cfg Config) (*pgconn.PgConn, error) {
 
 	pgCfg, err := pgconn.ParseConfig(url)
 	if err != nil {
-		slog.Error("failed to parse postgres config", slog.String("error", err.Error()))
-
+		logger.Error("failed to parse postgres config", err)
 		return nil, err
 	}
 
 	conn, err := pgconn.ConnectConfig(ctx, pgCfg)
 	if err != nil {
-		slog.Error("pool constructor failed", slog.String("error", err.Error()))
-
+		logger.Error("pool constructor failed", err)
 		return nil, err
 	}
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/syncgo/opensearchpb"
+
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	asynctask "github.com/syncgo/syncgo/pkg/async_task"
 	"github.com/syncgo/syncgo/pkg/gzip"

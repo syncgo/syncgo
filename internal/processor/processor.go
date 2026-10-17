@@ -14,6 +14,7 @@ import (
 	"github.com/syncgo/syncgo/internal/replication"
 	"github.com/syncgo/syncgo/pkg/config"
 	"github.com/syncgo/syncgo/pkg/http_client"
+	"github.com/syncgo/syncgo/pkg/logger"
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/postgresql"
 	"github.com/syncgo/syncgo/pkg/search_engine_client"
@@ -134,7 +135,7 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
 	}, monitoring)
 	if err != nil {
-		slog.Error("failed to create search engine client", slog.String("error", err.Error()))
+		logger.Error("failed to create search engine client", err)
 		return nil, err
 	}
 
@@ -152,7 +153,7 @@ func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher
 
 	conn, err := postgresql.New(ctx, pgCfg)
 	if err != nil {
-		slog.Error("failed to create postgresql connection", slog.String("error", err.Error()))
+		logger.Error("failed to create postgresql connection", err)
 		return nil, err
 	}
 
@@ -196,7 +197,7 @@ func startMetricsServer(cfg *config.Config) *http.Server {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("metrics server failed", slog.String("err", err.Error()))
+			logger.Error("metrics server failed", err)
 		}
 	}()
 
