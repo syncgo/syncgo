@@ -2,13 +2,13 @@ name: E2E
 
 on:
   push:
-    branches: [ master, release/* ]
+    branches: [ master ]
     tags:
       - "v*.*.*"
     paths-ignore:
       - 'README.md'
   pull_request:
-    branches: [ master, release/* ]
+    branches: [ master ]
     paths-ignore:
       - 'README.md'
 

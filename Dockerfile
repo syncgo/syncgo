@@ -13,7 +13,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X github.com/syncgo/syncgo/pkg/cli.version=${VERSION}" -v -o syncgo ./cmd/syncgo
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X github.com/syncgo/syncgo/pkg/cli.version=${VERSION}" -v -o syncgo ./cmd/syncgo
 
 FROM alpine AS runner
 

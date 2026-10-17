@@ -4,13 +4,17 @@
 
 SyncGo uses PostgreSQL logical replication to consume database changes and writes them to the configured search engine in batches.
 
-# Requirements
-
-For production, SyncGo is distributed and executed as a **binary**.
-
-Docker-based production deployment has **not been tested** and is therefore not currently considered a supported production deployment method.
-
 # Installation
+
+## Docker
+
+SyncGo is published as a multi-arch Docker image (linux/amd64 and linux/arm64):
+
+```bash
+docker pull ghcr.io/syncgo/syncgo:latest
+```
+
+Images are built and pushed automatically for every `v*.*.*` release tag.
 
 ## Build the binary
 
@@ -33,8 +37,6 @@ The resulting binary is placed in:
 bin/syncgo
 ```
 
-The `build` target runs `go build -o bin ./...`.
-
 You can also build it directly:
 
 ```bash
@@ -56,13 +58,7 @@ A typical production installation can look like:
 Start SyncGo with:
 
 ```bash
-/usr/local/bin/syncgo --config /etc/syncgo/config.yaml
-```
-
-There is also a short `--cfg` alias:
-
-```bash
-/usr/local/bin/syncgo --cfg /etc/syncgo/config.yaml
+/usr/local/bin/syncgo run --config /etc/syncgo/config.yaml
 ```
 
 If no configuration path is specified, SyncGo looks for:
@@ -73,11 +69,35 @@ If no configuration path is specified, SyncGo looks for:
 
 ---
 
+# Commands
+
+The syncgo binary has the following commands:
+
+```text
+syncgo <command> [flags]
+```
+
+| Command   | Description                                                                   |
+| --------- | ----------------------------------------------------------------------------- |
+| `prepare` | Create publication, replication slot and search index. Idempotent.            |
+| `run`     | Run the sync process.                                                         |
+| `version` | Print the SyncGo version.                                                     |
+
+All commands accept the configuration flag:
+
+| Flag                | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `-config`, `-cfg`   | Path to the configuration file (YAML)                        |
+
+If the flag is omitted, SyncGo looks for `/etc/syncgo/config.yaml`.
+
+A typical deployment first runs `prepare` once (it creates the PostgreSQL publication, replication slot and search index; existing objects are left as is), and then keeps `run` executing continuously. On `SIGINT`/`SIGTERM` the current batch is flushed and the replication connection is closed.
+
+---
+
 # Configuration
 
-SyncGo uses a YAML configuration file.
-
-A minimal configuration looks like:
+SyncGo uses a YAML configuration file. A minimal configuration looks like:
 
 ```yaml
 postgresql:
@@ -159,7 +179,7 @@ max_replication_slots > 0
 
 The E2E environment demonstrates this setup by changing `wal_level`, `max_wal_senders`, `max_replication_slots`, and `logical_decoding_work_mem`.
 
-Create a publication containing the tables SyncGo should consume:
+The `prepare` command creates the publication and replication slot automatically. To create a publication manually, containing the tables SyncGo should consume:
 
 ```sql
 CREATE PUBLICATION syncgo_publication
@@ -174,6 +194,20 @@ FOR ALL TABLES;
 ```
 
 The configured publication determines which PostgreSQL changes are delivered to SyncGo.
+
+## PostgreSQL permissions
+
+The PostgreSQL user used by SyncGo must be able to connect to the configured database and use logical replication.
+
+Depending on your PostgreSQL setup, this may require replication privileges, for example:
+
+```sql
+ALTER ROLE syncgo WITH REPLICATION;
+```
+
+The exact privileges should be adapted to your PostgreSQL security model.
+
+SyncGo also needs to be able to access the publication and replication slot.
 
 ---
 
@@ -229,11 +263,9 @@ GET /_cluster/health
 
 Therefore, SyncGo will fail to start if the configured search engine cannot be reached or returns an unsuccessful status.
 
----
+## Authentication
 
-# Authentication
-
-## Basic authentication
+### Basic authentication
 
 ```yaml
 search_engine:
@@ -246,7 +278,7 @@ search_engine:
 
 SyncGo creates a standard HTTP Basic Authentication header from `username` and `password`.
 
-## API key
+### API key
 
 API key authentication can be configured with:
 
@@ -260,9 +292,7 @@ search_engine:
 
 When `api_key` is configured, it takes precedence over username/password authentication.
 
----
-
-# TLS
+## TLS
 
 TLS can be configured with:
 
@@ -288,9 +318,7 @@ insecure_skip_verify: true
 
 unless there is a specific operational reason to do so.
 
----
-
-# Connection timeout
+## Connection timeout
 
 ```yaml
 search_engine:
@@ -311,9 +339,7 @@ connection_timeout: 10s
 connection_timeout: 1m
 ```
 
----
-
-# Gzip compression
+## Gzip compression
 
 Bulk requests can use gzip compression:
 
@@ -328,9 +354,7 @@ The exact accepted compression-level values depend on SyncGo's gzip configuratio
 
 For a simple initial deployment, this option can be omitted.
 
----
-
-# HTTP keep-alive
+## HTTP keep-alive
 
 SyncGo supports persistent HTTP connections:
 
@@ -348,9 +372,7 @@ search_engine:
 
 This can be useful for high-throughput production deployments where SyncGo continuously sends bulk requests.
 
----
-
-# OpenSearch gRPC
+## OpenSearch gRPC
 
 OpenSearch can optionally use gRPC for bulk operations instead of the HTTP `_bulk` API.
 
@@ -376,19 +398,6 @@ name: opensearch
 SyncGo validates this during startup.
 
 When valid gRPC configuration is present, the search client creates an OpenSearch gRPC connection and uses the OpenSearch `DocumentService` for bulk operations.
-
-Example:
-
-```yaml
-search_engine:
-  name: opensearch
-  address: http://localhost:9200
-  index: users
-
-  grpc:
-    host: opensearch.example.com
-    port: 9300
-```
 
 If `grpc` is not configured, OpenSearch uses the HTTP bulk API.
 
@@ -565,22 +574,23 @@ metrics:
 ## Run from source
 
 ```bash
-go run ./cmd/syncgo --config ./config.yaml
+go run ./cmd/syncgo run --config ./config.yaml
 ```
 
 ## Run the compiled binary
 
 ```bash
-./bin/syncgo --config ./config.yaml
+./bin/syncgo run --config ./config.yaml
 ```
 
-## Production example
+## Run in Docker
 
 ```bash
-/usr/local/bin/syncgo --config /etc/syncgo/config.yaml
+docker run -d \
+  -v /etc/syncgo/config.yaml:/etc/syncgo/config.yaml \
+  ghcr.io/syncgo/syncgo:latest \
+  run --config /etc/syncgo/config.yaml
 ```
-
-SyncGo handles `SIGINT` and `SIGTERM` and performs a graceful shutdown. During shutdown, the current batch is flushed and the PostgreSQL replication connection is closed.
 
 ---
 
@@ -610,13 +620,6 @@ The `demo` target:
 2. prepares the E2E environment;
 3. starts SyncGo using `./e2e/config.yaml`.
 
-The relevant Makefile target is effectively:
-
-```make
-demo: build prepare
-	./bin/syncgo --config ./e2e/config.yaml
-```
-
 ## 2. Generate PostgreSQL changes
 
 Keep SyncGo running and open another terminal:
@@ -644,71 +647,7 @@ You can query the resulting documents with:
 curl -X GET "http://localhost:9200/test_index/_search?pretty"
 ```
 
-This is also the example used by the repository's existing README.
-
 ---
-
-# Demo configuration
-
-The current E2E configuration is:
-
-```yaml
-postgresql:
-  user: postgres
-  password: postgres
-  host: localhost
-  port: 5432
-  database: postgres
-  slot_name: test_slot
-  publication_name: test_publication
-
-search_engine:
-  name: elasticsearch
-  address: http://localhost:9200
-  username: admin
-  password: Es123456
-  index: test_index
-
-batcher:
-  size: 100
-  flush_interval: 50ms
-```
-
-The E2E environment automatically configures PostgreSQL for logical replication, creates the test table, and creates the `test_publication` publication.
-
-## Demo
-
-```bash
-make demo
-```
-
-Builds SyncGo, prepares the Docker-based E2E environment, and starts SyncGo using the E2E configuration.
-
-## Generate demo data
-
-```bash
-make generate_data
-```
-
-Inserts/updates/deletes records in the demo PostgreSQL instance to demonstrate CDC synchronization.
-
----
-
-# PostgreSQL permissions
-
-The PostgreSQL user used by SyncGo must be able to connect to the configured database and use logical replication.
-
-Depending on your PostgreSQL setup, this may require replication privileges, for example:
-
-```sql
-ALTER ROLE syncgo WITH REPLICATION;
-```
-
-The exact privileges should be adapted to your PostgreSQL security model.
-
-SyncGo also needs to be able to access the publication and replication slot.
-
-SyncGo checks whether the configured replication slot exists and creates it when necessary.
 
 # License
 
