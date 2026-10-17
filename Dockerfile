@@ -1,7 +1,8 @@
 ARG GO_VERSION=1.27
-ARG VERSION=dev
 
 FROM golang:${GO_VERSION}-alpine AS builder
+
+ARG VERSION=dev
 
 RUN apk --no-cache add git ca-certificates
 
