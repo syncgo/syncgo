@@ -1,0 +1,64 @@
+version: 2
+
+project_name: syncgo
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: syncgo
+    main: ./cmd/syncgo
+    binary: syncgo
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [ tar.gz ]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [ zip ]
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^Merge pull request"
+      - "^Merge branch"
+
+dockers_v2:
+  - id: syncgo
+    dockerfile: Dockerfile
+    images:
+      - ghcr.io/syncgo/syncgo
+    tags:
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    build_args:
+      VERSION: "{{ .Version }}"
