@@ -50,10 +50,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          file: ./Dockerfile
           build-args: |
             GO_VERSION=1.27
             VERSION=${{ github.ref_name }}
