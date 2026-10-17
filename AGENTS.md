@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What this is
 
 SyncGo is a Go implementation of [PGSync](https://pgsync.com/): it consumes PostgreSQL logical replication (WAL via `pgoutput`) and writes changes to Elasticsearch or OpenSearch in batches. Distributed as a binary (`cmd/syncgo`), configured via YAML.
