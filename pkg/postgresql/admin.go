@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// replicationPlugin is the logical decoding output plugin used by syncgo.
-const replicationPlugin = "pgoutput"
+// defaultReplicationPlugin is used when no plugin is configured explicitly.
+const defaultReplicationPlugin = "pgoutput"
 
 func NewStandard(ctx context.Context, cfg Config) (*pgconn.PgConn, error) {
 	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s",
@@ -88,7 +88,11 @@ func EnsurePublication(ctx context.Context, conn *pgconn.PgConn, pubName string,
 // function instead of the CREATE_REPLICATION_SLOT replication command,
 // because the admin connection is a regular (non-walsender) connection.
 // The slot name and plugin are passed as query parameters.
-func EnsureReplicationSlot(ctx context.Context, conn *pgconn.PgConn, slotName string) error {
+func EnsureReplicationSlot(ctx context.Context, conn *pgconn.PgConn, slotName, plugin string) error {
+	if plugin == "" {
+		plugin = defaultReplicationPlugin
+	}
+
 	exists, err := ReplicationSlotExists(ctx, conn, slotName)
 	if err != nil {
 		return fmt.Errorf("failed to check replication slot %q: %w", slotName, err)
@@ -99,7 +103,7 @@ func EnsureReplicationSlot(ctx context.Context, conn *pgconn.PgConn, slotName st
 	}
 
 	const sql = "SELECT pg_create_logical_replication_slot($1, $2)"
-	args := [][]byte{[]byte(slotName), []byte(replicationPlugin)}
+	args := [][]byte{[]byte(slotName), []byte(plugin)}
 
 	if result := conn.ExecParams(ctx, sql, args, []uint32{pgtype.TextOID, pgtype.TextOID}, nil, nil); !result.NextRow() {
 		_, err := result.Close()

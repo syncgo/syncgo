@@ -15,6 +15,22 @@ const (
 	Update
 )
 
+// String returns the Elasticsearch/OpenSearch bulk action name.
+func (a Action) String() string {
+	switch a {
+	case Index:
+		return "index"
+	case Create:
+		return "create"
+	case Delete:
+		return "delete"
+	case Update:
+		return "update"
+	default:
+		return "unknown"
+	}
+}
+
 type DataPayload []Data
 
 type Data struct {

@@ -62,7 +62,7 @@ func preparePublicationAndSlot(ctx context.Context, cfg *config.Config) error {
 		)
 	}
 
-	if err := postgresql.EnsureReplicationSlot(ctx, adminConn, cfg.PostgreSQL.SlotName); err != nil {
+	if err := postgresql.EnsureReplicationSlot(ctx, adminConn, cfg.PostgreSQL.SlotName, cfg.PostgreSQL.Plugin); err != nil {
 		return fmt.Errorf("failed to ensure replication slot %q: %w", cfg.PostgreSQL.SlotName, err)
 	}
 

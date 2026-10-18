@@ -161,6 +161,7 @@ func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher
 		PublicationName: cfg.PostgreSQL.PublicationName,
 		SlotName:        cfg.PostgreSQL.SlotName,
 		IDColumn:        cfg.PostgreSQL.IDColumn,
+		PluginName:      cfg.PostgreSQL.Plugin,
 		DB:              pgCfg,
 	}, conn, b)
 }

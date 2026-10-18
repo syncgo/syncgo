@@ -4,126 +4,42 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/syncgo/syncgo/internal/bulk_transformer"
-
-	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/syncgo/syncgo/internal/plugins"
 )
 
-func (c *LogicalReplicationConn) process(walData []byte, relations map[uint32]*pglogrepl.RelationMessage, typeMap *pgtype.Map) {
-	logicalMsg, err := pglogrepl.Parse(walData)
+// process decodes a single XLogData payload through the plugin and applies
+// the resulting events to the batcher. Transaction boundaries from the plugin
+// (plugins.EventBegin/EventCommit/EventRollback) drive the commit/rollback
+// semantics of the txnTracker so only committed rows reach the batcher.
+func (c *LogicalReplicationConn) process(walData []byte) error {
+	events, err := c.plugin.Decode(walData)
 	if err != nil {
-		slog.Error("failed to parse logical replication message", slog.String("err", err.Error()))
-		return
+		slog.Error("failed to decode wal data", slog.String("err", err.Error()))
+		return fmt.Errorf("failed to decode wal data: %w", err)
 	}
 
-	slog.Debug("received logical replication message", slog.String("type", logicalMsg.Type().String()))
+	for _, event := range events {
+		switch event.Kind {
+		case plugins.EventBegin:
+			c.txn.begin()
 
-	switch logicalMsg := logicalMsg.(type) {
-	case *pglogrepl.RelationMessage:
-		relations[logicalMsg.RelationID] = logicalMsg
+		case plugins.EventCommit:
+			c.txn.commit(c.batcher)
 
-	case *pglogrepl.BeginMessage:
-		c.txn.begin()
+		case plugins.EventRollback:
+			c.txn.rollback(c.batcher)
 
-	case *pglogrepl.CommitMessage:
-		c.txn.commit(c.batcher)
-
-	case *pglogrepl.InsertMessage:
-		rel, ok := relations[logicalMsg.RelationID]
-		if !ok {
-			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
-			return
-		}
-		values := tupleToValues(rel, logicalMsg.Tuple, typeMap)
-		slog.Debug("insert data", slog.Any("values", values))
-		id, ok := documentID(c.idColumn, values)
-		if !ok {
-			slog.Error("missing document id column",
-				slog.String("column", c.idColumn),
-				slog.String("relation", rel.RelationName),
+		case plugins.EventChange:
+			slog.Debug("change operation",
+				slog.String("action", event.Change.Action.String()),
+				slog.String("id", event.Change.ID),
 			)
-			return
-		}
-		item, ok := valuesToData(id, bulk_transformer.Index, values)
-		if !ok {
-			return
-		}
-		c.enqueueRow(item)
-		slog.Debug("insert operation",
-			slog.String("namespace", rel.Namespace),
-			slog.String("relationName", rel.RelationName),
-			slog.String("id", id),
-		)
+			c.enqueueRow(event.Change)
 
-	case *pglogrepl.UpdateMessage:
-		rel, ok := relations[logicalMsg.RelationID]
-		if !ok {
-			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
-			return
+		default:
+			slog.Warn("unknown event kind", slog.Uint64("kind", uint64(event.Kind)))
 		}
-		keyValues := tupleToValues(rel, logicalMsg.OldTuple, typeMap)
-		if len(keyValues) == 0 {
-			keyValues = tupleToValues(rel, logicalMsg.NewTuple, typeMap)
-		}
-		slog.Debug("update old data", slog.Any("values", keyValues))
-		id, ok := documentID(c.idColumn, keyValues)
-		if !ok {
-			slog.Error("missing document id column for update",
-				slog.String("column", c.idColumn),
-				slog.String("relation", rel.RelationName),
-			)
-			return
-		}
-		newValues := tupleToValues(rel, logicalMsg.NewTuple, typeMap)
-		slog.Debug("update new data", slog.Any("values", keyValues))
-		item, ok := valuesToData(id, bulk_transformer.Update, newValues)
-		if !ok {
-			return
-		}
-		c.enqueueRow(item)
-		slog.Debug("update operation",
-			slog.String("namespace", rel.Namespace),
-			slog.String("relationName", rel.RelationName),
-			slog.String("id", id),
-		)
-
-	case *pglogrepl.DeleteMessage:
-		rel, ok := relations[logicalMsg.RelationID]
-		if !ok {
-			slog.Error("unknown relation ID", slog.Uint64("relationID", uint64(logicalMsg.RelationID)))
-			return
-		}
-		values := tupleToValues(rel, logicalMsg.OldTuple, typeMap)
-		slog.Debug("delete data", slog.Any("values", values))
-		id, ok := documentID(c.idColumn, values)
-		if !ok {
-			slog.Error("missing document id column for delete",
-				slog.String("column", c.idColumn),
-				slog.String("relation", rel.RelationName),
-			)
-			return
-		}
-		c.enqueueRow(deleteData(id))
-		slog.Debug("delete operation",
-			slog.String("namespace", rel.Namespace),
-			slog.String("relationName", rel.RelationName),
-			slog.String("id", id),
-		)
-
-	case *pglogrepl.TruncateMessage:
-		slog.Debug("truncate operation", slog.Int("relationCount", len(logicalMsg.RelationIDs)))
-
-	case *pglogrepl.TypeMessage:
-	case *pglogrepl.OriginMessage:
-
-	case *pglogrepl.LogicalDecodingMessage:
-		slog.Info("logical decoding message",
-			slog.String("prefix", logicalMsg.Prefix),
-			slog.String("content", string(logicalMsg.Content)),
-		)
-
-	default:
-		slog.Warn("unknown message type in pgoutput stream", slog.String("type", fmt.Sprintf("%T", logicalMsg)))
 	}
+
+	return nil
 }

@@ -61,6 +61,9 @@ type PostgreSQLConfig struct {
 	PublicationName string `yaml:"publication_name"`
 	SlotName        string `yaml:"slot_name"`
 	IDColumn        string `yaml:"id_column"`
+	// Plugin is the logical decoding output plugin name. Empty defaults to
+	// pgoutput.
+	Plugin string `yaml:"plugin"`
 	// Tables is the list of schema-qualified tables (e.g. public.users) added
 	// to the publication by the prepare command. Empty means the publication
 	// is managed externally.
@@ -127,6 +130,10 @@ func (c *Config) Validate() error {
 
 	if c.PostgreSQL.IDColumn == "" {
 		c.PostgreSQL.IDColumn = "id"
+	}
+
+	if c.PostgreSQL.Plugin == "" {
+		c.PostgreSQL.Plugin = "pgoutput"
 	}
 
 	return nil

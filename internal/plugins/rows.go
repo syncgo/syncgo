@@ -1,4 +1,4 @@
-package replication
+package plugins
 
 import (
 	"encoding/json"
@@ -72,12 +72,4 @@ func deleteData(id string) bulk_transformer.Data {
 		ID:     id,
 		Action: bulk_transformer.Delete,
 	}
-}
-
-func (c *LogicalReplicationConn) enqueueRow(item bulk_transformer.Data) {
-	if c.batcher == nil {
-		return
-	}
-	c.batcher.Add(item)
-	c.txn.recordAdd()
 }
