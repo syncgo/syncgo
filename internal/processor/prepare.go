@@ -36,7 +36,7 @@ func Prepare(parentCtx context.Context, cfg *config.Config, monitoring *metrics.
 // preparePublicationAndSlot ensures the configured publication (when a table
 // list is provided) and replication slot exist.
 func preparePublicationAndSlot(ctx context.Context, cfg *config.Config) error {
-	adminConn, err := postgresql.NewStandard(ctx, postgresql.Config{
+	pgClient, err := postgresql.New(ctx, postgresql.Config{
 		User:     cfg.PostgreSQL.User,
 		Password: cfg.PostgreSQL.Password,
 		Host:     cfg.PostgreSQL.Host,
@@ -47,13 +47,13 @@ func preparePublicationAndSlot(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("failed to connect to postgres: %w", err)
 	}
 	defer func() {
-		if closeErr := adminConn.Close(ctx); closeErr != nil {
+		if closeErr := pgClient.Close(ctx); closeErr != nil {
 			logger.Error("failed to close admin connection", closeErr)
 		}
 	}()
 
 	if len(cfg.PostgreSQL.Tables) > 0 {
-		if err := postgresql.EnsurePublication(ctx, adminConn, cfg.PostgreSQL.PublicationName, cfg.PostgreSQL.Tables); err != nil {
+		if err := pgClient.EnsurePublication(ctx, cfg.PostgreSQL.PublicationName, cfg.PostgreSQL.Tables); err != nil {
 			return fmt.Errorf("failed to ensure publication %q: %w", cfg.PostgreSQL.PublicationName, err)
 		}
 	} else {
@@ -62,7 +62,7 @@ func preparePublicationAndSlot(ctx context.Context, cfg *config.Config) error {
 		)
 	}
 
-	if err := postgresql.EnsureReplicationSlot(ctx, adminConn, cfg.PostgreSQL.SlotName); err != nil {
+	if err := pgClient.EnsureReplicationSlot(ctx, cfg.PostgreSQL.SlotName); err != nil {
 		return fmt.Errorf("failed to ensure replication slot %q: %w", cfg.PostgreSQL.SlotName, err)
 	}
 

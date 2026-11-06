@@ -13,6 +13,7 @@ import (
 
 	"github.com/syncgo/syncgo/internal/processor"
 	"github.com/syncgo/syncgo/pkg/config"
+	"github.com/syncgo/syncgo/pkg/logger"
 	"github.com/syncgo/syncgo/pkg/metrics"
 	"github.com/syncgo/syncgo/pkg/postgresql"
 
@@ -21,6 +22,34 @@ import (
 
 // defaultConfigPath is used by LoadConfig when SYNCGO_E2E_CONFIG is not set.
 const defaultConfigPath = "../config.yaml"
+
+func newConn(ctx context.Context, cfg postgresql.Config) (*pgconn.PgConn, error) {
+	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s",
+		cfg.User,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.Database,
+	)
+
+	if cfg.Replication {
+		url += "?replication=database"
+	}
+
+	pgCfg, err := pgconn.ParseConfig(url)
+	if err != nil {
+		logger.Error("failed to parse postgres config", err)
+		return nil, err
+	}
+
+	conn, err := pgconn.ConnectConfig(ctx, pgCfg)
+	if err != nil {
+		logger.Error("pool constructor failed", err)
+		return nil, err
+	}
+
+	return conn, nil
+}
 
 // LoadConfig loads the e2e config from SYNCGO_E2E_CONFIG or, when unset,
 // from the default pipeline config path.
@@ -93,7 +122,7 @@ func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config) context
 func SetupTable(t *testing.T, ctx context.Context, pgCfg postgresql.Config, table string) {
 	t.Helper()
 
-	conn, err := postgresql.NewStandard(ctx, pgCfg)
+	conn, err := newConn(ctx, pgCfg)
 	if err != nil {
 		t.Fatal("e2e; sync; failed to connect to postgres; error: ", err)
 	}
@@ -121,7 +150,7 @@ func DeleteRow(t *testing.T, ctx context.Context, pgCfg postgresql.Config, table
 func ExecSQL(t *testing.T, ctx context.Context, pgCfg postgresql.Config, sql string) {
 	t.Helper()
 
-	conn, err := postgresql.NewStandard(ctx, pgCfg)
+	conn, err := newConn(ctx, pgCfg)
 	if err != nil {
 		t.Fatal("e2e; sync; failed to connect to postgres; error: ", err)
 	}
