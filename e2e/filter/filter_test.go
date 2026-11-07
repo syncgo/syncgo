@@ -14,6 +14,7 @@ import (
 
 	"github.com/syncgo/syncgo/e2e/pkg/utils"
 	"github.com/syncgo/syncgo/pkg/config"
+	"github.com/syncgo/syncgo/pkg/postgresql"
 )
 
 const (
@@ -49,6 +50,12 @@ func TestPipeline_RowFilter(t *testing.T) {
 	client := utils.NewClient(t, ctx, utils.PgConfigFrom(cfg))
 
 	utils.SetupTable(t, ctx, client, filterTable)
+	// The row filter references column "name", which is not part of the
+	// replica identity (the primary key). Publishing UPDATE/DELETE for such
+	// a table requires REPLICA IDENTITY FULL, otherwise PostgreSQL rejects
+	// the update (SQLSTATE 42P10).
+	utils.MustExec(t, ctx, client,
+		fmt.Sprintf("ALTER TABLE %s REPLICA IDENTITY FULL", postgresql.QuoteQualifiedIdent(filterTable)))
 
 	t.Cleanup(func() {
 		_ = client.DropPublication(ctx, cfg.PostgreSQL.PublicationName)

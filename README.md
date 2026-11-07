@@ -188,6 +188,14 @@ expression: PostgreSQL applies it to the published rows, so changes that do
 not satisfy the filter never reach SyncGo. An entry without a `filter`
 publishes all rows of the table.
 
+Note: if the filter references columns outside the table's replica identity
+(the primary key by default), UPDATE and DELETE of rows in that table require
+`REPLICA IDENTITY FULL`, otherwise PostgreSQL rejects the change:
+
+```sql
+ALTER TABLE public.orders REPLICA IDENTITY FULL;
+```
+
 ## Logical replication
 
 PostgreSQL must be configured for logical replication.
