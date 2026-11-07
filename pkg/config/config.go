@@ -61,10 +61,41 @@ type PostgreSQLConfig struct {
 	PublicationName string `yaml:"publication_name"`
 	SlotName        string `yaml:"slot_name"`
 	IDColumn        string `yaml:"id_column"`
-	// Tables is the list of schema-qualified tables (e.g. public.users) added
-	// to the publication by the prepare command. Empty means the publication
-	// is managed externally.
-	Tables []string `yaml:"tables"`
+	// Tables is the list of tables added to the publication by the prepare
+	// command. Each entry may carry a row filter applied by PostgreSQL
+	// itself. Empty means the publication is managed externally.
+	Tables []PublicationTable `yaml:"tables"`
+}
+
+// PublicationTable describes a single table of the publication.
+type PublicationTable struct {
+	// Table is the schema-qualified table name (e.g. public.users).
+	Table string `yaml:"table"`
+	// Filter is an optional SQL expression (PostgreSQL row filter): only
+	// rows satisfying it are published to the replication stream.
+	Filter string `yaml:"filter"`
+}
+
+// UnmarshalYAML accepts each tables entry either as a plain string
+// ("public.users") or as a mapping ({table: public.users, filter: "..."}).
+func (t *PublicationTable) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		var name string
+		if err := value.Decode(&name); err != nil {
+			return err
+		}
+		t.Table = name
+		return nil
+	}
+
+	type rawPublicationTable PublicationTable
+	var raw rawPublicationTable
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*t = PublicationTable(raw)
+
+	return nil
 }
 
 // SearchConfig holds connection configuration for Elasticsearch or OpenSearch (HTTP).
@@ -127,6 +158,12 @@ func (c *Config) Validate() error {
 
 	if c.PostgreSQL.IDColumn == "" {
 		c.PostgreSQL.IDColumn = "id"
+	}
+
+	for i, t := range c.PostgreSQL.Tables {
+		if t.Table == "" {
+			return fmt.Errorf("postgresql.tables[%d]: table name is required", i)
+		}
 	}
 
 	return nil

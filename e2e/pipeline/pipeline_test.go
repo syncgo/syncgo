@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	rowCount         = 500
-	waitForAbsentTTL = 60 * time.Second
-	pipelineTable    = "test"
+	rowCount             = 500
+	waitForAbsentTTL     = 60 * time.Second
+	pipelineTable        = "test"
+	filterPipelineTable  = "syncgo_filter_pipeline"
+	filterPipelineIDBase = 1_000_000
 )
 
 func varietyTag(i int) string {
@@ -79,4 +81,34 @@ func TestPipeline_UpdateDelete(t *testing.T) {
 
 	utils.AssertDocument(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "2", updatedName)
 	utils.WaitForDocumentAbsent(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "3", waitForAbsentTTL)
+}
+
+// TestPipeline_RowFilterSync exercises the filtered table of the shared
+// publication: the binary (or docker container) under test created the
+// publication with a row filter on public.syncgo_filter_pipeline (see
+// e2e/config.yaml), so PostgreSQL must drop filtered-out rows from the
+// replication stream before they reach the search engine. Only inserts and
+// assertions happen here — no processor is started by the test itself.
+func TestPipeline_RowFilterSync(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	cfg := utils.LoadConfig(t)
+	client := utils.NewClient(t, ctx, utils.PgConfigFrom(cfg))
+
+	// Separate table (declared in e2e/init.sql, filtered in the shared
+	// publication) writing into the shared index. Row ids are shifted past
+	// the ids used by the plain test table to keep the documents distinct.
+	utils.SetupTable(t, ctx, client, filterPipelineTable)
+
+	run := time.Now().UnixNano()
+	publishedName := fmt.Sprintf("published-%d", run)
+
+	utils.InsertRow(t, ctx, client, filterPipelineTable, filterPipelineIDBase+1, "hidden")
+	utils.InsertRow(t, ctx, client, filterPipelineTable, filterPipelineIDBase+2, publishedName)
+
+	utils.AssertDocument(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, fmt.Sprint(filterPipelineIDBase+2), publishedName)
+	// The hidden row is excluded by the publication row filter and must
+	// never reach the index.
+	utils.WaitForDocumentAbsent(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, fmt.Sprint(filterPipelineIDBase+1), waitForAbsentTTL)
 }

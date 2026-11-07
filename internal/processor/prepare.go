@@ -53,7 +53,11 @@ func preparePublicationAndSlot(ctx context.Context, cfg *config.Config) error {
 	}()
 
 	if len(cfg.PostgreSQL.Tables) > 0 {
-		if err := adminConn.EnsurePublication(ctx, cfg.PostgreSQL.PublicationName, cfg.PostgreSQL.Tables); err != nil {
+		pubTables := make([]postgresql.PublicationTable, len(cfg.PostgreSQL.Tables))
+		for i, t := range cfg.PostgreSQL.Tables {
+			pubTables[i] = postgresql.PublicationTable{Table: t.Table, Filter: t.Filter}
+		}
+		if err := adminConn.EnsurePublication(ctx, cfg.PostgreSQL.PublicationName, pubTables); err != nil {
 			return fmt.Errorf("failed to ensure publication %q: %w", cfg.PostgreSQL.PublicationName, err)
 		}
 	} else {

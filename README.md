@@ -144,6 +144,10 @@ postgresql:
   slot_name: syncgo_slot
   publication_name: syncgo_publication
   id_column: id
+  tables:
+    - public.users
+    - table: public.orders
+      filter: "status != 'archived'"
 ```
 
 | Parameter          | Required | Description                                                              |
@@ -156,6 +160,7 @@ postgresql:
 | `slot_name`        |      Yes | Logical replication slot used by SyncGo                                  |
 | `publication_name` |      Yes | PostgreSQL publication consumed by SyncGo                                |
 | `id_column`        |       No | Primary identifier column used when processing changes; defaults to `id` |
+| `tables`           |       No | Tables added to the publication by the `prepare` command; see below      |
 
 `slot_name` and `publication_name` are mandatory.
 
@@ -163,6 +168,32 @@ If `id_column` is not specified, SyncGo uses:
 
 ```text
 id
+```
+
+### Tables and row filters
+
+Each `tables` entry is either a plain schema-qualified table name or a mapping with an optional `filter`:
+
+```yaml
+tables:
+  - public.users
+  - table: public.orders
+    filter: "amount > 100"
+```
+
+The `prepare` command creates the publication as
+`CREATE PUBLICATION ... FOR TABLE public.users, public.orders WHERE (amount > 100)`.
+The `filter` is a PostgreSQL [row filter](https://www.postgresql.org/docs/current/logical-replication-row-filters.html)
+expression: PostgreSQL applies it to the published rows, so changes that do
+not satisfy the filter never reach SyncGo. An entry without a `filter`
+publishes all rows of the table.
+
+Note: if the filter references columns outside the table's replica identity
+(the primary key by default), UPDATE and DELETE of rows in that table require
+`REPLICA IDENTITY FULL`, otherwise PostgreSQL rejects the change:
+
+```sql
+ALTER TABLE public.orders REPLICA IDENTITY FULL;
 ```
 
 ## Logical replication

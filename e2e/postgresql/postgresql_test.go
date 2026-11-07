@@ -53,7 +53,7 @@ func TestPublicationExists(t *testing.T) {
 		t.Fatalf("e2e; postgres; publication %q should not exist initially", pub)
 	}
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; failed to ensure publication; error: ", err)
 	}
 
@@ -79,11 +79,11 @@ func TestEnsurePublication_Idempotent(t *testing.T) {
 
 	setupPubTable(t, ctx, client, pubTable)
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; first EnsurePublication failed; error: ", err)
 	}
 	// Second call on an existing publication must not fail or change it.
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; second EnsurePublication failed; error: ", err)
 	}
 
@@ -119,7 +119,7 @@ func TestEnsurePublication_SchemaQualifiedAndQuoting(t *testing.T) {
 
 	setupPubTable(t, ctx, client, pubTable)
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; EnsurePublication failed; error: ", err)
 	}
 
@@ -143,7 +143,7 @@ func TestDropPublication(t *testing.T) {
 
 	setupPubTable(t, ctx, client, pubTable)
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; EnsurePublication failed; error: ", err)
 	}
 
@@ -165,6 +165,39 @@ func TestDropPublication(t *testing.T) {
 	}
 }
 
+func TestEnsurePublication_RowFilter(t *testing.T) {
+	client, _ := newPgClient(t)
+	ctx := context.Background()
+
+	const (
+		pub      = "syncgo_e2e_filter_pub"
+		pubTable = "syncgo_e2e_filter_rows"
+	)
+	t.Cleanup(func() { _ = client.DropPublication(ctx, pub) })
+
+	setupPubTable(t, ctx, client, pubTable)
+
+	tables := []postgresql.PublicationTable{
+		{Table: "public." + pubTable, Filter: "id > 100"},
+	}
+	if err := client.EnsurePublication(ctx, pub, tables); err != nil {
+		t.Fatal("e2e; postgres; EnsurePublication with row filter failed; error: ", err)
+	}
+
+	// The stored row filter must match the requested expression (pg_get_expr
+	// wraps it into outer parentheses). The filtering itself is performed by
+	// PostgreSQL.
+	rows, err := client.Query(ctx,
+		"SELECT pg_get_expr(prqual, prrelid) FROM pg_publication_rel WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = $1)",
+		pub)
+	if err != nil {
+		t.Fatal("e2e; postgres; failed to query publication row filter; error: ", err)
+	}
+	if len(rows) != 1 || string(rows[0][0]) != "(id > 100)" {
+		t.Fatalf("e2e; postgres; unexpected publication row filter: %v", rows)
+	}
+}
+
 func TestDropPublication_AllowsRecreate(t *testing.T) {
 	client, _ := newPgClient(t)
 	ctx := context.Background()
@@ -177,14 +210,14 @@ func TestDropPublication_AllowsRecreate(t *testing.T) {
 
 	setupPubTable(t, ctx, client, pubTable)
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; first EnsurePublication failed; error: ", err)
 	}
 	if err := client.DropPublication(ctx, pub); err != nil {
 		t.Fatal("e2e; postgres; DropPublication failed; error: ", err)
 	}
 	// After drop, Ensure must create the publication again.
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []postgresql.PublicationTable{{Table: "public." + pubTable}}); err != nil {
 		t.Fatal("e2e; postgres; EnsurePublication after drop failed; error: ", err)
 	}
 }
