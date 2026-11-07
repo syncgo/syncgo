@@ -184,15 +184,16 @@ func TestEnsurePublication_RowFilter(t *testing.T) {
 		t.Fatal("e2e; postgres; EnsurePublication with row filter failed; error: ", err)
 	}
 
-	// The stored row filter must match the requested expression. The
-	// filtering itself is performed by PostgreSQL.
+	// The stored row filter must match the requested expression (pg_get_expr
+	// wraps it into outer parentheses). The filtering itself is performed by
+	// PostgreSQL.
 	rows, err := client.Query(ctx,
 		"SELECT pg_get_expr(prqual, prrelid) FROM pg_publication_rel WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = $1)",
 		pub)
 	if err != nil {
 		t.Fatal("e2e; postgres; failed to query publication row filter; error: ", err)
 	}
-	if len(rows) != 1 || string(rows[0][0]) != "id > 100" {
+	if len(rows) != 1 || string(rows[0][0]) != "(id > 100)" {
 		t.Fatalf("e2e; postgres; unexpected publication row filter: %v", rows)
 	}
 }
