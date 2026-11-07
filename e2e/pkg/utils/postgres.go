@@ -77,15 +77,16 @@ func NewClient(t *testing.T, ctx context.Context, pgCfg postgresql.Config) *post
 
 // RunProcessor runs prepare (creates publication, slot and index) and then
 // starts the sync process, stopping it on test cleanup. Returns the cancel
-// function for the run context.
-func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config) context.CancelFunc {
+// function for the run context. The state file with the consistent point is
+// written next to the suite's config file.
+func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config, configPath string) context.CancelFunc {
 	t.Helper()
 
-	if err := processor.Prepare(ctx, cfg, metrics.DefaultMetrics); err != nil {
+	if err := processor.Prepare(ctx, cfg, configPath, metrics.DefaultMetrics); err != nil {
 		t.Fatal("e2e; prepare failed; error: ", err)
 	}
 
-	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
+	p, err := processor.New(ctx, cfg, configPath, metrics.DefaultMetrics)
 	if err != nil {
 		t.Fatal("e2e; failed to init processor; error: ", err)
 	}

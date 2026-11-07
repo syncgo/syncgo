@@ -33,6 +33,13 @@ type LogicalRepicationConfig struct {
 	SlotName        string
 	IDColumn        string
 	DB              postgresql.Config
+	// StartLSN is the LSN to request in START_REPLICATION. The server starts
+	// streaming at max(StartLSN, confirmed_flush_lsn), so passing the slot's
+	// creation-time consistent point is always safe: on the first run it is
+	// the correct resume position, on restarts the server advances it to the
+	// confirmed flush position. Zero means "let IdentifySystem decide" —
+	// only suitable when no initial copy has been made.
+	StartLSN pglogrepl.LSN
 }
 
 type LogicalReplicationConn struct {
@@ -76,6 +83,21 @@ func New(ctx context.Context, cfg LogicalRepicationConfig, conn *pgconn.PgConn, 
 		return nil, err
 	}
 	replicationConn.xLogPos = sysident.XLogPos
+
+	// When an explicit start LSN is configured (the slot's consistent point
+	// from the state file), use it instead of the current WAL position:
+	// streaming from "now" would skip the changes accumulated in the slot.
+	if cfg.StartLSN != 0 {
+		if cfg.StartLSN < replicationConn.xLogPos {
+			replicationConn.xLogPos = cfg.StartLSN
+		}
+		// A StartLSN greater than the current WAL position would error on
+		// START_REPLICATION; keep the identified position in that case.
+		slog.Info("using configured start LSN",
+			slog.String("startLSN", cfg.StartLSN.String()),
+			slog.String("currentLSN", sysident.XLogPos.String()),
+		)
+	}
 
 	slog.Info("successfully indentify system",
 		slog.String("sysetmID", sysident.SystemID),

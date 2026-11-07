@@ -12,6 +12,7 @@ import (
 	"github.com/syncgo/syncgo/pkg/logger"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -215,6 +216,35 @@ func (c *Client) EnsureReplicationSlot(ctx context.Context, slotName string) err
 	slog.Info("created replication slot", slog.String("name", slotName))
 
 	return nil
+}
+
+// CreateReplicationSlotWithSnapshot creates a logical replication slot on a
+// walsender connection with the CREATE_REPLICATION_SLOT replication command
+// and SNAPSHOT 'export', so the initial data copy can read the database
+// state exactly at the slot creation point.
+//
+// It must be called on a replication-mode connection (Config.Replication
+// is true); the connection must stay open while the exported snapshot is
+// being consumed by another session, and must run no other commands.
+//
+// Returns the slot's consistent point (the LSN to start streaming from) and
+// the exported snapshot name.
+func CreateReplicationSlotWithSnapshot(ctx context.Context, conn *pgconn.PgConn, slotName string) (consistentPoint string, snapshotName string, err error) {
+	result, err := pglogrepl.CreateReplicationSlot(ctx, conn, slotName, replicationPlugin, pglogrepl.CreateReplicationSlotOptions{
+		SnapshotAction: "EXPORT_SNAPSHOT",
+		Mode:           pglogrepl.LogicalReplication,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create replication slot %q with snapshot: %w", slotName, err)
+	}
+
+	slog.Info("created replication slot with exported snapshot",
+		slog.String("name", slotName),
+		slog.String("consistentPoint", result.ConsistentPoint),
+		slog.String("snapshotName", result.SnapshotName),
+	)
+
+	return result.ConsistentPoint, result.SnapshotName, nil
 }
 
 // DropReplicationSlot drops the logical replication slot if it exists.
