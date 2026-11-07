@@ -19,6 +19,9 @@ const (
 
 	defaultBatcherSize          = 100
 	defaultBatcherFlushInterval = 50 * time.Millisecond
+
+	defaultBulkMaxRetries   = 3
+	defaultBulkRetryTimeout = time.Second
 )
 
 // Config holds the complete application configuration
@@ -81,6 +84,11 @@ type SearchEngineConfig struct {
 	TLS               *SearchTLSConfig          `yaml:"tls"`
 	KeepAlive         *SearchKeepAliveConfig    `yaml:"keep_alive"`
 	GRPC              *OpenSearchGRPCConfig     `yaml:"grpc,omitempty"`
+	// MaxRetries is how many extra attempts are made after a failed bulk
+	// request before giving up. 0 means no retries.
+	MaxRetries int `yaml:"max_retries"`
+	// RetryTimeout is the delay between bulk request retry attempts.
+	RetryTimeout time.Duration `yaml:"retry_timeout"`
 }
 
 type SearchTLSConfig struct {
@@ -115,6 +123,14 @@ func (c *Config) Validate() error {
 
 	if c.Batcher.FlushInterval <= 0 {
 		c.Batcher.FlushInterval = defaultBatcherFlushInterval
+	}
+
+	if c.SearchEngine.MaxRetries <= 0 {
+		c.SearchEngine.MaxRetries = defaultBulkMaxRetries
+	}
+
+	if c.SearchEngine.RetryTimeout <= 0 {
+		c.SearchEngine.RetryTimeout = defaultBulkRetryTimeout
 	}
 
 	if c.PostgreSQL.SlotName == "" {

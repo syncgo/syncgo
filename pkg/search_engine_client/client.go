@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/syncgo/opensearchpb"
-
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	asynctask "github.com/syncgo/syncgo/pkg/async_task"
 	"github.com/syncgo/syncgo/pkg/gzip"
@@ -51,6 +50,11 @@ type Config struct {
 	KeepAlive         *http_client.ClientKeepAliveConfig
 	// GRPC is optional. When set, the client uses gRPC for bulk operations instead of HTTP.
 	GRPC *GRPCConfig
+	// MaxRetries is how many extra attempts Bulk makes after a failed attempt
+	// before giving up. 0 means no retries.
+	MaxRetries int
+	// RetryTimeout is the delay between Bulk retry attempts.
+	RetryTimeout time.Duration
 }
 
 //go:generate go tool mockgen -source=client.go -destination=./mocks/monitoring_mock.go -package=mocks
@@ -58,6 +62,8 @@ type Monitoring interface {
 	IncSearchRequests(status string)
 	AddSearchErrors(errorsCount float64)
 	ObserveSearchBulkDuration(status string, seconds float64)
+	IncBulkRetry()
+	IncBulkExhausted()
 }
 
 type Client struct {
@@ -72,6 +78,9 @@ type Client struct {
 
 	index   string
 	timeout time.Duration
+
+	maxRetries   int
+	retryTimeout time.Duration
 
 	monitoring Monitoring
 	healthTask *asynctask.AsyncTask
@@ -126,9 +135,21 @@ func New(ctx context.Context, cfg Config, monitoring Monitoring) (*Client, error
 		return nil, fmt.Errorf("%s ping failed with status: %d", cfg.Name, code)
 	}
 
-	slog.Debug(fmt.Sprintf("%s connection established successfully", cfg.Name))
+	slog.Debug(fmt.Sprintf("%s connection established successfully", cfg.Name),
+		slog.Int("max_retries", cfg.MaxRetries),
+		slog.Duration("retry_timeout", cfg.RetryTimeout),
+	)
 
-	client := &Client{name: cfg.Name, baseURL: cfg.Address, httpClient: httpClient, index: cfg.Index, timeout: timeout, monitoring: monitoring}
+	client := &Client{
+		name:         cfg.Name,
+		baseURL:      cfg.Address,
+		httpClient:   httpClient,
+		index:        cfg.Index,
+		timeout:      timeout,
+		maxRetries:   cfg.MaxRetries,
+		retryTimeout: cfg.RetryTimeout,
+		monitoring:   monitoring,
+	}
 
 	if cfg.GRPC != nil && cfg.GRPC.Host != "" && cfg.GRPC.Port > 0 {
 		addr := net.JoinHostPort(cfg.GRPC.Host, strconv.Itoa(cfg.GRPC.Port))
@@ -219,13 +240,44 @@ func (c *Client) PingClusterHealth(ctx context.Context) error {
 	return nil
 }
 
-// Bulk executes a bulk operation using either gRPC (if configured) or HTTP.
-// It accepts a bulk_transformer.DataPayload and returns an error only.
+// Bulk executes a bulk operation using either gRPC (if configured) or HTTP,
+// retrying on failure up to MaxRetries times with a RetryTimeout delay
+// between attempts. It accepts a bulk_transformer.DataPayload and returns an
+// error only.
 func (c *Client) Bulk(ctx context.Context, data bulk_transformer.DataPayload) error {
-	if c.docClient != nil {
-		return c.bulkGRPC(ctx, data)
+	var err error
+	for attempt := 1; attempt <= c.maxRetries+1; attempt++ {
+		if c.docClient != nil {
+			err = c.bulkGRPC(ctx, data)
+		} else {
+			err = c.bulkHTTP(ctx, data)
+		}
+		if err == nil {
+			return nil
+		}
+
+		slog.Error("search engine client: bulk failed",
+			slog.Int("attempt", attempt),
+			slog.Int("max_attempts", c.maxRetries+1),
+			slog.String("error", err.Error()),
+		)
+
+		if attempt > c.maxRetries {
+			break
+		}
+
+		c.monitoring.IncBulkRetry()
+
+		select {
+		case <-ctx.Done():
+			c.monitoring.IncBulkExhausted()
+			return ctx.Err()
+		case <-time.After(c.retryTimeout):
+		}
 	}
-	return c.bulkHTTP(ctx, data)
+
+	c.monitoring.IncBulkExhausted()
+	return err
 }
 
 // bulkGRPC sends bulk data via the OpenSearch gRPC DocumentService.

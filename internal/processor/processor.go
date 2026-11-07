@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -85,7 +86,9 @@ func (p *Processor) shutdown() error {
 	var errs []error
 
 	if p.batcher != nil {
-		p.batcher.Flush()
+		if err := p.batcher.Flush(); err != nil {
+			errs = append(errs, fmt.Errorf("final batcher flush: %w", err))
+		}
 	}
 
 	if p.replication != nil {
@@ -111,8 +114,11 @@ func (p *Processor) shutdown() error {
 	return errors.Join(errs...)
 }
 
-func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender, monitoring *metrics.Metrics) *batcher.Batcher {
-	b := batcher.NewBatcher(ctx, cfg.Size, cfg.FlushInterval, sender, monitoring)
+func initBatcher(ctx context.Context, cfg config.BatcherConfig, sender batcher.BulkSender, m batcher.Metrics) *batcher.Batcher {
+	b := batcher.NewBatcher(ctx, batcher.Config{
+		BufferSize:   cfg.Size,
+		FlushTimeout: cfg.FlushInterval,
+	}, m, sender)
 
 	slog.Info("batcher initialized",
 		slog.Int("size", cfg.Size),
@@ -133,6 +139,8 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 		GzipCompression:   cfg.GzipCompression,
 		TLS:               searchTLSToClient(cfg.TLS),
 		KeepAlive:         searchKeepAliveToClient(cfg.KeepAlive),
+		MaxRetries:        cfg.MaxRetries,
+		RetryTimeout:      cfg.RetryTimeout,
 	}, monitoring)
 	if err != nil {
 		logger.Error("failed to create search engine client", err)

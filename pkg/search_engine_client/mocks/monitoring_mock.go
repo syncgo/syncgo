@@ -51,6 +51,30 @@ func (mr *MockMonitoringMockRecorder) AddSearchErrors(errorsCount any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSearchErrors", reflect.TypeOf((*MockMonitoring)(nil).AddSearchErrors), errorsCount)
 }
 
+// IncBulkExhausted mocks base method.
+func (m *MockMonitoring) IncBulkExhausted() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncBulkExhausted")
+}
+
+// IncBulkExhausted indicates an expected call of IncBulkExhausted.
+func (mr *MockMonitoringMockRecorder) IncBulkExhausted() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncBulkExhausted", reflect.TypeOf((*MockMonitoring)(nil).IncBulkExhausted))
+}
+
+// IncBulkRetry mocks base method.
+func (m *MockMonitoring) IncBulkRetry() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncBulkRetry")
+}
+
+// IncBulkRetry indicates an expected call of IncBulkRetry.
+func (mr *MockMonitoringMockRecorder) IncBulkRetry() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncBulkRetry", reflect.TypeOf((*MockMonitoring)(nil).IncBulkRetry))
+}
+
 // IncSearchRequests mocks base method.
 func (m *MockMonitoring) IncSearchRequests(status string) {
 	m.ctrl.T.Helper()

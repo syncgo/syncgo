@@ -238,22 +238,31 @@ search_engine:
   username: elastic
   password: password
   index: users
+  max_retries: 3
+  retry_timeout: 1s
 ```
 
-| Parameter            | Required | Description                              |
-| -------------------- | -------: | ---------------------------------------- |
-| `name`               |      Yes | `elasticsearch` or `opensearch`          |
-| `address`            |      Yes | HTTP address of the search cluster       |
-| `username`           |       No | Username for Basic Authentication        |
-| `password`           |       No | Password for Basic Authentication        |
-| `api_key`            |       No | API key authentication                   |
-| `cloud_id`           |       No | Elasticsearch Cloud ID                   |
-| `index`              |       No | Target index                             |
-| `connection_timeout` |       No | HTTP connection/request timeout          |
-| `gzip_compression`   |       No | Compression level for bulk requests      |
-| `tls`                |       No | TLS configuration                        |
-| `keep_alive`         |       No | HTTP connection keep-alive configuration |
-| `grpc`               |       No | OpenSearch gRPC configuration            |
+| Parameter            | Required | Description                                                  |
+| -------------------- | -------: | -------------------------------------------------------------|
+| `name`               |      Yes | `elasticsearch` or `opensearch`                               |
+| `address`            |      Yes | HTTP address of the search cluster                            |
+| `username`           |       No | Username for Basic Authentication                             |
+| `password`           |       No | Password for Basic Authentication                             |
+| `api_key`            |       No | API key authentication                                        |
+| `cloud_id`           |       No | Elasticsearch Cloud ID                                        |
+| `index`              |       No | Target index                                                  |
+| `connection_timeout` |       No | HTTP connection/request timeout                                |
+| `gzip_compression`   |       No | Compression level for bulk requests                            |
+| `tls`                |       No | TLS configuration                                              |
+| `keep_alive`         |       No | HTTP connection keep-alive configuration                       |
+| `grpc`               |       No | OpenSearch gRPC configuration                                  |
+| `max_retries`        |       No | Extra attempts made after a failed bulk request before giving up (default `3`) |
+| `retry_timeout`      |       No | Delay between bulk request retry attempts (default `1s`)       |
+
+If a bulk request fails (a client/transport error, or indexing errors in the response), the search engine
+client retries it up to `max_retries` times, waiting `retry_timeout` between attempts. If every attempt
+fails, the error is returned to the caller (the batcher), which keeps the failed items buffered instead of
+losing them — see "Flush failures" under Batcher configuration.
 
 SyncGo checks the search cluster during startup using:
 
@@ -414,7 +423,7 @@ batcher:
 ```
 
 | Parameter        | Description                                                       |
-| ---------------- | ----------------------------------------------------------------- |
+| ---------------- | ------------------------------------------------------------------|
 | `size`           | Maximum number of buffered changes before a size-triggered flush  |
 | `flush_interval` | Maximum idle period before buffered committed changes are flushed |
 
@@ -473,6 +482,24 @@ flush_interval: 0
 However, for normal production workloads it is recommended to keep the interval enabled.
 
 The batcher flushes committed records and retains records that have not yet been successfully committed.
+
+## Flush failures
+
+A flush sends the batcher's committed records to the search engine client's `Bulk` method, which already
+retries on failure (see `max_retries` / `retry_timeout` under
+[Search engine configuration](#search-engine-configuration)). The batcher itself does not retry: a flush
+either succeeds, or it returns the error it got back from the client once that client has exhausted its
+own retries.
+
+On failure, the batcher does **not** clear its buffer: the committed records that failed to flush, and any
+records added after them, all stay in the buffer exactly as they were. Nothing is dropped. The next flush
+trigger — the next idle `flush_interval` tick, the next `Add` that fills the buffer, or an explicit `Flush`
+call — resends the same committed prefix. If the search engine stays down, this repeats indefinitely and
+the buffer keeps growing, so a prolonged outage should be caught via monitoring rather than relied on to
+self-heal silently.
+
+The flush error is also surfaced to the caller — on graceful shutdown, a failed final flush is included in
+`Processor.Shutdown`'s returned error instead of being silently discarded.
 
 ---
 
