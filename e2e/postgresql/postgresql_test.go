@@ -30,11 +30,20 @@ func newPgClient(t *testing.T) (*postgresql.Client, *postgresql.Config) {
 }
 
 func TestPublicationExists(t *testing.T) {
-	client, cfg := newPgClient(t)
+	client, _ := newPgClient(t)
 	ctx := context.Background()
 
-	const pub = "syncgo_e2e_exists_pub"
+	const (
+		pub      = "syncgo_e2e_exists_pub"
+		pubTable = "syncgo_e2e_exists_rows"
+	)
 	t.Cleanup(func() { _ = client.DropPublication(ctx, pub) })
+
+	// The table referenced by the publication must exist beforehand.
+	utils.SetupTable(t, ctx, client, pubTable)
+	t.Cleanup(func() {
+		_ = client.Exec(ctx, "DROP TABLE IF EXISTS "+postgresql.QuoteQualifiedIdent(pubTable))
+	})
 
 	exists, err := client.PublicationExists(ctx, pub)
 	if err != nil {
@@ -44,7 +53,7 @@ func TestPublicationExists(t *testing.T) {
 		t.Fatalf("e2e; postgres; publication %q should not exist initially", pub)
 	}
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public." + cfg.Database}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; failed to ensure publication; error: ", err)
 	}
 
@@ -63,20 +72,18 @@ func TestEnsurePublication_Idempotent(t *testing.T) {
 
 	const (
 		pub      = "syncgo_e2e_idempotent_pub"
-		pubTable = "public.syncgo_e2e_idempotent_rows"
+		pubTable = "syncgo_e2e_idempotent_rows"
 	)
 
-	utils.SetupTable(t, ctx, client, "syncgo_e2e_idempotent_rows")
-	t.Cleanup(func() {
-		_ = client.DropPublication(ctx, pub)
-		_ = client.Exec(ctx, "DROP TABLE IF EXISTS "+postgresql.QuoteQualifiedIdent(pubTable))
-	})
+	t.Cleanup(func() { _ = client.DropPublication(ctx, pub) })
 
-	if err := client.EnsurePublication(ctx, pub, []string{pubTable}); err != nil {
+	setupPubTable(t, ctx, client, pubTable)
+
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; first EnsurePublication failed; error: ", err)
 	}
 	// Second call on an existing publication must not fail or change it.
-	if err := client.EnsurePublication(ctx, pub, []string{pubTable}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; second EnsurePublication failed; error: ", err)
 	}
 
@@ -84,19 +91,35 @@ func TestEnsurePublication_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal("e2e; postgres; failed to list publication tables; error: ", err)
 	}
-	if len(tables) != 1 || tables[0] != pubTable {
+	if len(tables) != 1 || tables[0] != "public."+pubTable {
 		t.Fatalf("e2e; postgres; unexpected publication tables: %v", tables)
 	}
+}
+
+// setupPubTable creates the table referenced by a publication, dropping it
+// on test cleanup.
+func setupPubTable(t *testing.T, ctx context.Context, client *postgresql.Client, table string) {
+	t.Helper()
+
+	utils.SetupTable(t, ctx, client, table)
+	t.Cleanup(func() {
+		_ = client.Exec(ctx, "DROP TABLE IF EXISTS "+postgresql.QuoteQualifiedIdent(table))
+	})
 }
 
 func TestEnsurePublication_SchemaQualifiedAndQuoting(t *testing.T) {
 	client, _ := newPgClient(t)
 	ctx := context.Background()
 
-	const pub = "syncgo_e2e_quoting_pub"
+	const (
+		pub      = "syncgo_e2e_quoting_pub"
+		pubTable = "syncgo_e2e_quoting_rows"
+	)
 	t.Cleanup(func() { _ = client.DropPublication(ctx, pub) })
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public.syncgo_e2e_quoting_rows"}); err != nil {
+	setupPubTable(t, ctx, client, pubTable)
+
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; EnsurePublication failed; error: ", err)
 	}
 
@@ -104,7 +127,7 @@ func TestEnsurePublication_SchemaQualifiedAndQuoting(t *testing.T) {
 	if err != nil {
 		t.Fatal("e2e; postgres; failed to list publication tables; error: ", err)
 	}
-	if !slices.Equal(tables, []string{"public.syncgo_e2e_quoting_rows"}) {
+	if !slices.Equal(tables, []string{"public." + pubTable}) {
 		t.Fatalf("e2e; postgres; unexpected publication tables: %v", tables)
 	}
 }
@@ -113,9 +136,14 @@ func TestDropPublication(t *testing.T) {
 	client, _ := newPgClient(t)
 	ctx := context.Background()
 
-	const pub = "syncgo_e2e_drop_pub"
+	const (
+		pub      = "syncgo_e2e_drop_pub"
+		pubTable = "syncgo_e2e_drop_rows"
+	)
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public.syncgo_e2e_drop_rows"}); err != nil {
+	setupPubTable(t, ctx, client, pubTable)
+
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; EnsurePublication failed; error: ", err)
 	}
 
@@ -141,17 +169,22 @@ func TestDropPublication_AllowsRecreate(t *testing.T) {
 	client, _ := newPgClient(t)
 	ctx := context.Background()
 
-	const pub = "syncgo_e2e_recreate_pub"
+	const (
+		pub      = "syncgo_e2e_recreate_pub"
+		pubTable = "syncgo_e2e_recreate_rows"
+	)
 	t.Cleanup(func() { _ = client.DropPublication(ctx, pub) })
 
-	if err := client.EnsurePublication(ctx, pub, []string{"public.syncgo_e2e_recreate_rows"}); err != nil {
+	setupPubTable(t, ctx, client, pubTable)
+
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; first EnsurePublication failed; error: ", err)
 	}
 	if err := client.DropPublication(ctx, pub); err != nil {
 		t.Fatal("e2e; postgres; DropPublication failed; error: ", err)
 	}
 	// After drop, Ensure must create the publication again.
-	if err := client.EnsurePublication(ctx, pub, []string{"public.syncgo_e2e_recreate_rows"}); err != nil {
+	if err := client.EnsurePublication(ctx, pub, []string{"public." + pubTable}); err != nil {
 		t.Fatal("e2e; postgres; EnsurePublication after drop failed; error: ", err)
 	}
 }
