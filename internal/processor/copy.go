@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	"github.com/syncgo/syncgo/pkg/config"
@@ -55,10 +56,10 @@ func copyInitialData(ctx context.Context, cfg *config.Config, snapshotName strin
 
 	// Pin the transaction to the exported snapshot before any query: the
 	// whole transaction then sees the database state at the moment the
-	// replication slot was created.
+	// replication slot was created. SET TRANSACTION SNAPSHOT does not accept
+	// parameters, so the name is quoted into the statement text.
 	if err := pgConn.Exec(ctx,
-		"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ; SET TRANSACTION SNAPSHOT $1",
-		snapshotName,
+		fmt.Sprintf("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ; SET TRANSACTION SNAPSHOT %s", quoteLiteral(snapshotName)),
 	); err != nil {
 		return fmt.Errorf("failed to import snapshot %q: %w", snapshotName, err)
 	}
@@ -205,4 +206,11 @@ func documentIDValue(idColumn string, values map[string]any) (string, bool) {
 	}
 
 	return fmt.Sprint(val), true
+}
+
+// quoteLiteral quotes a string literal (e.g. a snapshot name) for
+// interpolation into a SQL statement. Embedded single quotes are doubled per
+// the SQL standard.
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

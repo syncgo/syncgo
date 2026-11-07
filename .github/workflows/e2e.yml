@@ -47,7 +47,7 @@ jobs:
 
       - name: Show syncgo logs
         if: failure()
-        run: cat syncgo.log
+        run: cat syncgo.log || echo "syncgo.log not found (run step never started)"
 
       - name: Stop services
         if: always()
@@ -91,7 +91,7 @@ jobs:
 
       - name: Show syncgo logs
         if: failure()
-        run: docker logs syncgo
+        run: docker logs syncgo 2>&1 || echo "container syncgo not found (run step never started)"
 
       - name: Stop services
         if: always()
