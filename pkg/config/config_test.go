@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -314,6 +315,121 @@ postgresql:
 					t.Errorf("expected config but got nil")
 					return
 				}
+			}
+		})
+	}
+}
+
+func TestLoadFromYAML_Tables(t *testing.T) {
+	tests := []struct {
+		name         string
+		yamlContent  string
+		expectError  bool
+		errorMsg     string
+		expectTables []PublicationTable
+	}{
+		{
+			name: "plain string tables",
+			yamlContent: `
+postgresql:
+  slot_name: test
+  publication_name: pub
+  tables:
+    - public.users
+    - public.orders
+search_engine:
+  name: elasticsearch
+  address: http://localhost:9200
+`,
+			expectTables: []PublicationTable{{Table: "public.users"}, {Table: "public.orders"}},
+		},
+		{
+			name: "mapping tables with filters",
+			yamlContent: `
+postgresql:
+  slot_name: test
+  publication_name: pub
+  tables:
+    - table: public.users
+      filter: "region = 'eu'"
+    - table: public.orders
+      filter: status != 'archived'
+search_engine:
+  name: elasticsearch
+  address: http://localhost:9200
+`,
+			expectTables: []PublicationTable{
+				{Table: "public.users", Filter: "region = 'eu'"},
+				{Table: "public.orders", Filter: "status != 'archived'"},
+			},
+		},
+		{
+			name: "mixed forms",
+			yamlContent: `
+postgresql:
+  slot_name: test
+  publication_name: pub
+  tables:
+    - public.users
+    - table: public.orders
+      filter: "amount > 100"
+search_engine:
+  name: elasticsearch
+  address: http://localhost:9200
+`,
+			expectTables: []PublicationTable{
+				{Table: "public.users"},
+				{Table: "public.orders", Filter: "amount > 100"},
+			},
+		},
+		{
+			name: "table entry without table name",
+			yamlContent: `
+postgresql:
+  slot_name: test
+  publication_name: pub
+  tables:
+    - filter: "id > 1"
+search_engine:
+  name: elasticsearch
+  address: http://localhost:9200
+`,
+			expectError: true,
+			errorMsg:    "postgresql.tables[0]: table name is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpFile, err := os.CreateTemp("", "test-config-tables-*.yaml")
+			if err != nil {
+				t.Fatalf("failed to create temp file: %v", err)
+			}
+			testPath := tmpFile.Name()
+			defer func() { _ = os.Remove(testPath) }()
+
+			if err := tmpFile.Close(); err != nil {
+				t.Fatalf("failed to close temp file: %v", err)
+			}
+			if err := os.WriteFile(testPath, []byte(tt.yamlContent), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+
+			cfg, err := LoadFromYAML(testPath)
+			if tt.expectError {
+				if err == nil {
+					t.Fatal("expected error but got nil")
+				}
+				if !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("expected error message to contain %q, got %q", tt.errorMsg, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(cfg.PostgreSQL.Tables, tt.expectTables) {
+				t.Errorf("expected tables %+v, got %+v", tt.expectTables, cfg.PostgreSQL.Tables)
 			}
 		})
 	}

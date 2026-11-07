@@ -18,6 +18,16 @@ import (
 // replicationPlugin is the logical decoding output plugin used by syncgo.
 const replicationPlugin = "pgoutput"
 
+// PublicationTable describes a table included in a publication, optionally
+// with a PostgreSQL row filter.
+type PublicationTable struct {
+	// Table is the schema-qualified table name (e.g. public.users).
+	Table string
+	// Filter is an optional SQL row filter expression. Empty means no
+	// filter: all rows of the table are published.
+	Filter string
+}
+
 // stmtPrefix prefixes the prepared statement names derived from SQL text.
 const stmtPrefix = "syncgo_"
 
@@ -108,7 +118,12 @@ func (c *Client) PublicationExists(ctx context.Context, pubName string) (bool, e
 
 // EnsurePublication creates the publication for the given tables if it does
 // not exist yet. It is idempotent: an existing publication is left as is.
-func (c *Client) EnsurePublication(ctx context.Context, pubName string, tables []string) error {
+//
+// Each table may carry a PostgreSQL row filter, published as
+// FOR TABLE t WHERE (filter). The filter is an SQL expression interpolated
+// into the statement as-is: it is part of the publication DDL, not a query
+// value, so it must come from a trusted config.
+func (c *Client) EnsurePublication(ctx context.Context, pubName string, tables []PublicationTable) error {
 	exists, err := c.PublicationExists(ctx, pubName)
 	if err != nil {
 		return err
@@ -118,19 +133,38 @@ func (c *Client) EnsurePublication(ctx context.Context, pubName string, tables [
 		return nil
 	}
 
-	// CREATE PUBLICATION takes identifiers, not values, so the statement
-	// cannot be parameterized; identifiers are quoted manually.
+	// CREATE PUBLICATION takes identifiers and expressions, not values, so
+	// the statement cannot be parameterized; identifiers are quoted
+	// manually.
+	entries := make([]string, len(tables))
+	for i, t := range tables {
+		if t.Filter == "" {
+			entries[i] = QuoteQualifiedIdent(t.Table)
+			continue
+		}
+		entries[i] = fmt.Sprintf("%s WHERE (%s)", QuoteQualifiedIdent(t.Table), t.Filter)
+	}
+
 	sql := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
-		QuoteIdent(pubName), strings.Join(quoteIdents(tables), ", "))
+		QuoteIdent(pubName), strings.Join(entries, ", "))
 
 	if _, err := c.conn.Exec(ctx, sql).ReadAll(); err != nil {
 		logger.Error("failed to create publication", err)
 		return fmt.Errorf("failed to create publication %q: %w", pubName, err)
 	}
 
+	tablesSummary := make([]string, len(tables))
+	for i, t := range tables {
+		if t.Filter == "" {
+			tablesSummary[i] = t.Table
+			continue
+		}
+		tablesSummary[i] = t.Table + " WHERE (" + t.Filter + ")"
+	}
+
 	slog.Info("created publication",
 		slog.String("name", pubName),
-		slog.String("tables", strings.Join(tables, ", ")),
+		slog.String("tables", strings.Join(tablesSummary, ", ")),
 	)
 
 	return nil
@@ -280,15 +314,6 @@ func quoteQualifiedIdent(name string) string {
 	}
 
 	return strings.Join(quoted, ".")
-}
-
-func quoteIdents(names []string) []string {
-	quoted := make([]string, len(names))
-	for i, name := range names {
-		quoted[i] = quoteQualifiedIdent(name)
-	}
-
-	return quoted
 }
 
 // queryPrepared prepares the statement derived from the SQL text (re-using

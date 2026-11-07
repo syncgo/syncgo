@@ -32,7 +32,7 @@ func prepareConfig() *config.Config {
 			Database:        "postgres",
 			PublicationName: "sync_prepare_pub",
 			SlotName:        "sync_prepare_slot",
-			Tables:          []string{"public." + prepareTable},
+			Tables:          []config.PublicationTable{{Table: "public." + prepareTable}},
 		},
 		SearchEngine: config.SearchEngineConfig{
 			Name:    "elasticsearch",
