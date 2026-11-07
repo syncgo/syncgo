@@ -35,16 +35,16 @@ func TestPipeline_InsertSync(t *testing.T) {
 	defer cancel()
 
 	cfg := utils.LoadConfig(t)
-	pgCfg := utils.PgConfigFrom(cfg)
+	client := utils.NewClient(t, ctx, utils.PgConfigFrom(cfg))
 
-	utils.SetupTable(t, ctx, pgCfg, pipelineTable)
+	utils.SetupTable(t, ctx, client, pipelineTable)
 
 	run := time.Now().UnixNano()
 	names := make(map[int]string, rowCount)
 	for i := 1; i <= rowCount; i++ {
 		name := fmt.Sprintf("row-%d-%d-%s", run, i, varietyTag(i))
 		names[i] = name
-		utils.InsertRow(t, ctx, pgCfg, pipelineTable, i, name)
+		utils.InsertRow(t, ctx, client, pipelineTable, i, name)
 	}
 
 	for id, name := range names {
@@ -57,25 +57,25 @@ func TestPipeline_UpdateDelete(t *testing.T) {
 	defer cancel()
 
 	cfg := utils.LoadConfig(t)
-	pgCfg := utils.PgConfigFrom(cfg)
+	client := utils.NewClient(t, ctx, utils.PgConfigFrom(cfg))
 
-	utils.SetupTable(t, ctx, pgCfg, pipelineTable)
+	utils.SetupTable(t, ctx, client, pipelineTable)
 
 	run := time.Now().UnixNano()
 	keepName := fmt.Sprintf("keep-%d", run)
 	updateName := fmt.Sprintf("update-%d", run)
 	deleteName := fmt.Sprintf("delete-%d", run)
 
-	utils.InsertRow(t, ctx, pgCfg, pipelineTable, 1, keepName)
-	utils.InsertRow(t, ctx, pgCfg, pipelineTable, 2, updateName)
-	utils.InsertRow(t, ctx, pgCfg, pipelineTable, 3, deleteName)
+	utils.InsertRow(t, ctx, client, pipelineTable, 1, keepName)
+	utils.InsertRow(t, ctx, client, pipelineTable, 2, updateName)
+	utils.InsertRow(t, ctx, client, pipelineTable, 3, deleteName)
 
 	utils.AssertDocument(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "2", updateName)
 	utils.AssertDocument(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "3", deleteName)
 
 	updatedName := fmt.Sprintf("updated-%d", run)
-	utils.UpdateRow(t, ctx, pgCfg, pipelineTable, 2, updatedName)
-	utils.DeleteRow(t, ctx, pgCfg, pipelineTable, 3)
+	utils.UpdateRow(t, ctx, client, pipelineTable, 2, updatedName)
+	utils.DeleteRow(t, ctx, client, pipelineTable, 3)
 
 	utils.AssertDocument(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "2", updatedName)
 	utils.WaitForDocumentAbsent(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "3", waitForAbsentTTL)

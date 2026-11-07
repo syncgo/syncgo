@@ -144,14 +144,15 @@ func initClient(ctx context.Context, cfg config.SearchEngineConfig, monitoring *
 
 func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher, monitoring *metrics.Metrics) (*replication.LogicalReplicationConn, error) {
 	pgCfg := postgresql.Config{
-		User:     cfg.PostgreSQL.User,
-		Password: cfg.PostgreSQL.Password,
-		Host:     cfg.PostgreSQL.Host,
-		Port:     cfg.PostgreSQL.Port,
-		Database: cfg.PostgreSQL.Database,
+		User:        cfg.PostgreSQL.User,
+		Password:    cfg.PostgreSQL.Password,
+		Host:        cfg.PostgreSQL.Host,
+		Port:        cfg.PostgreSQL.Port,
+		Database:    cfg.PostgreSQL.Database,
+		Replication: true,
 	}
 
-	conn, err := postgresql.New(ctx, pgCfg)
+	client, err := postgresql.New(ctx, pgCfg)
 	if err != nil {
 		logger.Error("failed to create postgresql connection", err)
 		return nil, err
@@ -162,7 +163,7 @@ func initReplication(ctx context.Context, cfg *config.Config, b *batcher.Batcher
 		SlotName:        cfg.PostgreSQL.SlotName,
 		IDColumn:        cfg.PostgreSQL.IDColumn,
 		DB:              pgCfg,
-	}, conn, b)
+	}, client.PgConn(), b)
 }
 
 func searchTLSToClient(t *config.SearchTLSConfig) *http_client.ClientTLSConfig {
