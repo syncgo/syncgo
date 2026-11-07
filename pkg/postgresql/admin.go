@@ -2,75 +2,97 @@ package postgresql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/syncgo/syncgo/pkg/logger"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // replicationPlugin is the logical decoding output plugin used by syncgo.
 const replicationPlugin = "pgoutput"
 
-func NewStandard(ctx context.Context, cfg Config) (*pgconn.PgConn, error) {
-	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s",
-		cfg.User,
-		cfg.Password,
-		cfg.Host,
-		cfg.Port,
-		cfg.Database,
-	)
+// Prepared statement names used by the admin helpers. Statements live for
+// the lifetime of the connection and are (re-)created on first use.
+const (
+	stmtPublicationExists = "syncgo_publication_exists"
+	stmtPublicationTables = "syncgo_publication_tables"
+	stmtCreatePublication = "syncgo_create_publication"
+	stmtDropPublication   = "syncgo_drop_publication"
+	stmtSlotExists        = "syncgo_slot_exists"
+	stmtCreateSlot        = "syncgo_create_replication_slot"
+	stmtDropSlot          = "syncgo_drop_replication_slot"
+	stmtExec              = "syncgo_exec"
+	stmtQuery             = "syncgo_query"
+)
 
-	pgCfg, err := pgconn.ParseConfig(url)
+// Client wraps a PostgreSQL connection with helpers for the replication
+// admin objects (publications, logical replication slots) and for running
+// ad-hoc statements, e.g. from tests.
+type Client struct {
+	conn *pgconn.PgConn
+}
+
+// New opens a PostgreSQL connection described by cfg.
+func New(ctx context.Context, cfg Config) (*Client, error) {
+	conn, err := connect(ctx, cfg)
 	if err != nil {
-		logger.Error("failed to parse postgres config", err)
 		return nil, err
 	}
 
-	conn, err := pgconn.ConnectConfig(ctx, pgCfg)
-	if err != nil {
-		logger.Error("failed to connect to postgres", err)
-		return nil, err
-	}
-
-	return conn, nil
+	return &Client{conn: conn}, nil
 }
 
-func ReplicationSlotExists(ctx context.Context, conn *pgconn.PgConn, slotName string) (bool, error) {
-	return queryExists(ctx, conn,
-		"SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)",
-		slotName,
-	)
+// Close closes the underlying connection.
+func (c *Client) Close(ctx context.Context) error {
+	return c.conn.Close(ctx)
 }
 
-func PublicationExists(ctx context.Context, conn *pgconn.PgConn, pubName string) (bool, error) {
-	return queryExists(ctx, conn,
+// PgConn exposes the underlying low-level connection, e.g. for pglogrepl.
+func (c *Client) PgConn() *pgconn.PgConn {
+	return c.conn
+}
+
+// PublicationExists reports whether the publication exists.
+func (c *Client) PublicationExists(ctx context.Context, pubName string) (bool, error) {
+	rows, err := c.queryPrepared(ctx, stmtPublicationExists,
 		"SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname = $1)",
-		pubName,
+		[]string{pubName},
 	)
+	if err != nil {
+		return false, fmt.Errorf("failed to check publication %q: %w", pubName, err)
+	}
+	if len(rows) != 1 || len(rows[0]) != 1 {
+		return false, fmt.Errorf("publication exists query returned %d rows of %d columns", len(rows), len(rows[0]))
+	}
+
+	return string(rows[0][0]) == "t", nil
 }
 
 // EnsurePublication creates the publication for the given tables if it does
 // not exist yet. It is idempotent: an existing publication is left as is.
-func EnsurePublication(ctx context.Context, conn *pgconn.PgConn, pubName string, tables []string) error {
-	exists, err := PublicationExists(ctx, conn, pubName)
+func (c *Client) EnsurePublication(ctx context.Context, pubName string, tables []string) error {
+	exists, err := c.PublicationExists(ctx, pubName)
 	if err != nil {
-		return fmt.Errorf("failed to check publication %q: %w", pubName, err)
+		return err
 	}
 	if exists {
 		slog.Info("publication already exists", slog.String("name", pubName))
 		return nil
 	}
 
+	// CREATE PUBLICATION takes identifiers, not values, so the statement
+	// cannot be parameterized; identifiers are quoted manually.
 	sql := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
 		quoteIdent(pubName), strings.Join(quoteIdents(tables), ", "))
 
-	if _, err := conn.Exec(ctx, sql).ReadAll(); err != nil {
+	if _, err := c.conn.Exec(ctx, sql).ReadAll(); err != nil {
 		logger.Error("failed to create publication", err)
-		return err
+		return fmt.Errorf("failed to create publication %q: %w", pubName, err)
 	}
 
 	slog.Info("created publication",
@@ -81,28 +103,76 @@ func EnsurePublication(ctx context.Context, conn *pgconn.PgConn, pubName string,
 	return nil
 }
 
+// PublicationTables returns the schema-qualified names of the tables
+// currently in the publication.
+func (c *Client) PublicationTables(ctx context.Context, pubName string) ([]string, error) {
+	rows, err := c.queryPrepared(ctx, stmtPublicationTables,
+		"SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname = $1",
+		[]string{pubName},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tables of publication %q: %w", pubName, err)
+	}
+
+	tables := make([]string, 0, len(rows))
+	for _, row := range rows {
+		tables = append(tables, string(row[0]))
+	}
+
+	return tables, nil
+}
+
+// DropPublication drops the publication if it exists.
+func (c *Client) DropPublication(ctx context.Context, pubName string) error {
+	if _, err := c.queryPrepared(ctx, stmtDropPublication,
+		"DROP PUBLICATION IF EXISTS $1",
+		[]string{pubName},
+	); err != nil {
+		return fmt.Errorf("failed to drop publication %q: %w", pubName, err)
+	}
+
+	slog.Info("dropped publication", slog.String("name", pubName))
+
+	return nil
+}
+
+// ReplicationSlotExists reports whether the logical replication slot exists.
+func (c *Client) ReplicationSlotExists(ctx context.Context, slotName string) (bool, error) {
+	rows, err := c.queryPrepared(ctx, stmtSlotExists,
+		"SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)",
+		[]string{slotName},
+	)
+	if err != nil {
+		return false, fmt.Errorf("failed to check replication slot %q: %w", slotName, err)
+	}
+	if len(rows) != 1 || len(rows[0]) != 1 {
+		return false, fmt.Errorf("replication slot exists query returned %d rows of %d columns", len(rows), len(rows[0]))
+	}
+
+	return string(rows[0][0]) == "t", nil
+}
+
 // EnsureReplicationSlot creates the logical replication slot if it does not
 // exist yet. It is idempotent: an existing slot is left as is.
 //
 // The slot is created with the pg_create_logical_replication_slot SQL
 // function instead of the CREATE_REPLICATION_SLOT replication command,
 // because the admin connection is a regular (non-walsender) connection.
-// The slot name and plugin are passed as query parameters.
-func EnsureReplicationSlot(ctx context.Context, conn *pgconn.PgConn, slotName string) error {
-	exists, err := ReplicationSlotExists(ctx, conn, slotName)
+// The slot name and plugin are passed as prepared statement parameters.
+func (c *Client) EnsureReplicationSlot(ctx context.Context, slotName string) error {
+	exists, err := c.ReplicationSlotExists(ctx, slotName)
 	if err != nil {
-		return fmt.Errorf("failed to check replication slot %q: %w", slotName, err)
+		return err
 	}
 	if exists {
 		slog.Info("replication slot already exists", slog.String("name", slotName))
 		return nil
 	}
 
-	const sql = "SELECT pg_create_logical_replication_slot($1, $2)"
-	args := [][]byte{[]byte(slotName), []byte(replicationPlugin)}
-
-	if result := conn.ExecParams(ctx, sql, args, []uint32{pgtype.TextOID, pgtype.TextOID}, nil, nil); !result.NextRow() {
-		_, err := result.Close()
+	if _, err := c.queryPrepared(ctx, stmtCreateSlot,
+		"SELECT pg_create_logical_replication_slot($1, $2)",
+		[]string{slotName, replicationPlugin},
+	); err != nil {
 		logger.Error("failed to create replication slot", err)
 		return fmt.Errorf("failed to create replication slot %q: %w", slotName, err)
 	}
@@ -110,6 +180,54 @@ func EnsureReplicationSlot(ctx context.Context, conn *pgconn.PgConn, slotName st
 	slog.Info("created replication slot", slog.String("name", slotName))
 
 	return nil
+}
+
+// DropReplicationSlot drops the logical replication slot if it exists.
+func (c *Client) DropReplicationSlot(ctx context.Context, slotName string) error {
+	if _, err := c.queryPrepared(ctx, stmtDropSlot,
+		"SELECT pg_drop_replication_slot($1) WHERE EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)",
+		[]string{slotName},
+	); err != nil {
+		return fmt.Errorf("failed to drop replication slot %q: %w", slotName, err)
+	}
+
+	slog.Info("dropped replication slot", slog.String("name", slotName))
+
+	return nil
+}
+
+// Exec runs a statement with optional text parameters. The statement is
+// cached on the connection, so repeated calls (e.g. in test loops) reuse it.
+// Identifiers cannot be passed as parameters; quote them into the SQL text
+// instead (see QuoteIdent).
+func (c *Client) Exec(ctx context.Context, sql string, args ...string) error {
+	if _, err := c.queryPrepared(ctx, stmtExec, sql, args); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Query runs a statement with optional text parameters and returns all
+// result rows. The statement is cached on the connection like in Exec.
+// Identifiers cannot be passed as parameters; quote them into the SQL text
+// instead (see QuoteIdent).
+func (c *Client) Query(ctx context.Context, sql string, args ...string) ([][][]byte, error) {
+	return c.queryPrepared(ctx, stmtQuery, sql, args)
+}
+
+// QuoteIdent quotes a single SQL identifier (schema, table, publication or
+// slot name) for interpolation into a SQL statement. Embedded double quotes
+// are doubled per the SQL standard.
+func QuoteIdent(name string) string {
+	return quoteIdent(name)
+}
+
+// QuoteQualifiedIdent quotes a possibly schema-qualified name (e.g.
+// "public.users"), quoting each dot-separated part individually. A name
+// without a dot is treated as a bare identifier.
+func QuoteQualifiedIdent(name string) string {
+	return quoteQualifiedIdent(name)
 }
 
 // quoteIdent quotes a single SQL identifier (schema, table, publication or
@@ -140,20 +258,27 @@ func quoteIdents(names []string) []string {
 	return quoted
 }
 
-func queryExists(ctx context.Context, conn *pgconn.PgConn, sql string, arg string) (bool, error) {
-	result := conn.ExecParams(ctx, sql, [][]byte{[]byte(arg)}, []uint32{pgtype.TextOID}, nil, nil)
-	if !result.NextRow() {
-		_, err := result.Close()
-		return false, fmt.Errorf("exists query returned no rows: %w", err)
+// queryPrepared prepares the statement under the given name (re-using an
+// existing statement of the same name on this connection) and executes it
+// with the given text parameters, returning all result rows.
+func (c *Client) queryPrepared(ctx context.Context, name string, sql string, args []string) ([][][]byte, error) {
+	_, err := c.conn.Prepare(ctx, name, sql, nil)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != pgerrcode.DuplicatePreparedStatement {
+			return nil, err
+		}
 	}
 
-	values := result.Values()
-	if len(values) != 1 {
-		_, err := result.Close()
-		return false, fmt.Errorf("expected one column in exists query result: %w", err)
+	paramValues := make([][]byte, len(args))
+	for i, arg := range args {
+		paramValues[i] = []byte(arg)
 	}
 
-	exists := string(values[0]) == "t"
-	_, err := result.Close()
-	return exists, err
+	result := c.conn.ExecPrepared(ctx, name, paramValues, nil, nil).Read()
+	if result.Err != nil {
+		return nil, result.Err
+	}
+
+	return result.Rows, nil
 }

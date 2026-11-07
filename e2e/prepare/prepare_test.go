@@ -12,7 +12,6 @@ import (
 	"github.com/syncgo/syncgo/internal/processor"
 	"github.com/syncgo/syncgo/pkg/config"
 	"github.com/syncgo/syncgo/pkg/metrics"
-	"github.com/syncgo/syncgo/pkg/postgresql"
 )
 
 const (
@@ -48,10 +47,10 @@ func TestPrepare_CreatesSlotPublicationAndIndex(t *testing.T) {
 	defer cancel()
 
 	cfg := prepareConfig()
-	pgCfg := utils.PgConfigFrom(cfg)
+	client := utils.NewClient(t, ctx, utils.PgConfigFrom(cfg))
 
 	// The table referenced by the publication must exist beforehand.
-	utils.SetupTable(t, ctx, pgCfg, prepareTable)
+	utils.SetupTable(t, ctx, client, prepareTable)
 
 	// First run creates the slot, publication and index.
 	if err := processor.Prepare(ctx, cfg, metrics.DefaultMetrics); err != nil {
@@ -63,13 +62,7 @@ func TestPrepare_CreatesSlotPublicationAndIndex(t *testing.T) {
 		t.Fatal("e2e; prepare; second run (idempotency) failed; error: ", err)
 	}
 
-	conn, err := postgresql.NewStandard(ctx, pgCfg)
-	if err != nil {
-		t.Fatal("e2e; prepare; failed to connect to postgres; error: ", err)
-	}
-	defer conn.Close(ctx)
-
-	slotExists, err := postgresql.ReplicationSlotExists(ctx, conn, cfg.PostgreSQL.SlotName)
+	slotExists, err := client.ReplicationSlotExists(ctx, cfg.PostgreSQL.SlotName)
 	if err != nil {
 		t.Fatal("e2e; prepare; failed to check slot; error: ", err)
 	}
@@ -77,7 +70,7 @@ func TestPrepare_CreatesSlotPublicationAndIndex(t *testing.T) {
 		t.Fatalf("e2e; prepare; replication slot %q was not created", cfg.PostgreSQL.SlotName)
 	}
 
-	pubExists, err := postgresql.PublicationExists(ctx, conn, cfg.PostgreSQL.PublicationName)
+	pubExists, err := client.PublicationExists(ctx, cfg.PostgreSQL.PublicationName)
 	if err != nil {
 		t.Fatal("e2e; prepare; failed to check publication; error: ", err)
 	}
@@ -89,9 +82,13 @@ func TestPrepare_CreatesSlotPublicationAndIndex(t *testing.T) {
 		t.Fatalf("e2e; prepare; index %q was not created", prepareIndex)
 	}
 
-	// Cleanup.
-	utils.MustExec(t, ctx, conn, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", cfg.PostgreSQL.PublicationName))
-	_, _ = conn.Exec(ctx, "SELECT pg_drop_replication_slot('"+cfg.PostgreSQL.SlotName+"')").ReadAll()
+	// Teardown.
+	if err := client.DropPublication(ctx, cfg.PostgreSQL.PublicationName); err != nil {
+		t.Fatal("e2e; prepare; failed to drop publication; error: ", err)
+	}
+	if err := client.DropReplicationSlot(ctx, cfg.PostgreSQL.SlotName); err != nil {
+		t.Fatal("e2e; prepare; failed to drop replication slot; error: ", err)
+	}
 }
 
 func indexExists(t *testing.T, address, index string) bool {
