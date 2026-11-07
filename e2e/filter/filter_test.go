@@ -64,7 +64,9 @@ func TestPipeline_RowFilter(t *testing.T) {
 
 	run := time.Now().UnixNano()
 	publishedName := fmt.Sprintf("published-%d", run)
-	hiddenName := fmt.Sprintf("hidden-%d", run)
+	// The filter is name != 'hidden', so the hidden row must use the exact
+	// value excluded by the filter.
+	hiddenName := "hidden"
 
 	// The hidden row does not satisfy the filter and must never appear in
 	// the index; the published row must be synced.
