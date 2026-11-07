@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/syncgo/opensearchpb"
-
 	"github.com/syncgo/syncgo/internal/bulk_transformer"
 	"github.com/syncgo/syncgo/pkg/http_client"
 	"github.com/syncgo/syncgo/pkg/search_engine_client/mocks"
@@ -492,6 +492,7 @@ func TestBulk_HTTP(t *testing.T) {
 		mon.EXPECT().AddSearchErrors(float64(1))
 		mon.EXPECT().IncSearchRequests("fail")
 		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
+		mon.EXPECT().IncBulkExhausted()
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -516,6 +517,7 @@ func TestBulk_HTTP(t *testing.T) {
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("fail")
 		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
+		mon.EXPECT().IncBulkExhausted()
 
 		c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
 		c.index = "test_index"
@@ -524,6 +526,173 @@ func TestBulk_HTTP(t *testing.T) {
 			t.Error("expected error for network error")
 		}
 	})
+}
+
+// --- Bulk retries ---
+
+func indexingErrorBody() map[string]interface{} {
+	return map[string]interface{}{
+		"errors": true,
+		"items": []interface{}{map[string]interface{}{
+			"index": map[string]interface{}{
+				"status": 400,
+				"error":  map[string]interface{}{"type": "mapper_error", "reason": "bad"},
+			},
+		}},
+	}
+}
+
+func TestBulk_HTTP_RetriesThenSucceeds(t *testing.T) {
+	payload := bulk_transformer.DataPayload{
+		{ID: "1", Action: bulk_transformer.Index, Body: []byte(`{"field":"value"}`)},
+	}
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) <= 2 {
+			_ = json.NewEncoder(w).Encode(indexingErrorBody())
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": false})
+	}))
+	t.Cleanup(srv.Close)
+
+	ctrl := gomock.NewController(t)
+	mon := mocks.NewMockMonitoring(ctrl)
+	mon.EXPECT().AddSearchErrors(float64(1)).Times(2)
+	mon.EXPECT().IncSearchRequests("fail").Times(2)
+	mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any()).Times(2)
+	mon.EXPECT().IncBulkRetry().Times(2)
+	mon.EXPECT().IncSearchRequests("success").Times(1)
+	mon.EXPECT().ObserveSearchBulkDuration("success", gomock.Any()).Times(1)
+
+	c := &Client{
+		name:         "test",
+		baseURL:      srv.URL,
+		httpClient:   mustHTTPClient(t, srv.URL),
+		timeout:      5 * time.Second,
+		index:        "test_index",
+		maxRetries:   3,
+		retryTimeout: 10 * time.Millisecond,
+		monitoring:   mon,
+	}
+
+	if err := c.Bulk(context.Background(), payload); err != nil {
+		t.Fatalf("expected bulk to succeed after retries, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 attempts, got %d", got)
+	}
+}
+
+func TestBulk_HTTP_ExhaustsRetries(t *testing.T) {
+	payload := bulk_transformer.DataPayload{
+		{ID: "1", Action: bulk_transformer.Index, Body: []byte(`{"field":"value"}`)},
+	}
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		_ = json.NewEncoder(w).Encode(indexingErrorBody())
+	}))
+	t.Cleanup(srv.Close)
+
+	ctrl := gomock.NewController(t)
+	mon := mocks.NewMockMonitoring(ctrl)
+	mon.EXPECT().AddSearchErrors(float64(1)).Times(3)
+	mon.EXPECT().IncSearchRequests("fail").Times(3)
+	mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any()).Times(3)
+	mon.EXPECT().IncBulkRetry().Times(2)
+	mon.EXPECT().IncBulkExhausted().Times(1)
+
+	c := &Client{
+		name:         "test",
+		baseURL:      srv.URL,
+		httpClient:   mustHTTPClient(t, srv.URL),
+		timeout:      5 * time.Second,
+		index:        "test_index",
+		maxRetries:   2,
+		retryTimeout: 5 * time.Millisecond,
+		monitoring:   mon,
+	}
+
+	start := time.Now()
+	if err := c.Bulk(context.Background(), payload); err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if elapsed := time.Since(start); elapsed < 10*time.Millisecond {
+		t.Fatalf("expected bulk to wait through retries, elapsed only %v", elapsed)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 attempts, got %d", got)
+	}
+}
+
+func TestBulk_HTTP_NoRetriesByDefault(t *testing.T) {
+	payload := bulk_transformer.DataPayload{
+		{ID: "1", Action: bulk_transformer.Index, Body: []byte(`{"field":"value"}`)},
+	}
+
+	ctrl := gomock.NewController(t)
+	mon := mocks.NewMockMonitoring(ctrl)
+	mon.EXPECT().IncSearchRequests("fail")
+	mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
+	mon.EXPECT().IncBulkExhausted()
+
+	c := newServerClient(t, mon, func(w http.ResponseWriter, r *http.Request) {}, true, 100*time.Millisecond)
+	c.index = "test_index"
+
+	if err := c.Bulk(context.Background(), payload); err == nil {
+		t.Error("expected error for network error")
+	}
+}
+
+func TestBulk_HTTP_RetryStopsOnContextCancel(t *testing.T) {
+	payload := bulk_transformer.DataPayload{
+		{ID: "1", Action: bulk_transformer.Index, Body: []byte(`{"field":"value"}`)},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(indexingErrorBody())
+	}))
+	t.Cleanup(srv.Close)
+
+	ctrl := gomock.NewController(t)
+	mon := mocks.NewMockMonitoring(ctrl)
+	mon.EXPECT().AddSearchErrors(float64(1)).AnyTimes()
+	mon.EXPECT().IncSearchRequests("fail").AnyTimes()
+	mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any()).AnyTimes()
+	mon.EXPECT().IncBulkRetry().MinTimes(1)
+	mon.EXPECT().IncBulkExhausted()
+
+	c := &Client{
+		name:         "test",
+		baseURL:      srv.URL,
+		httpClient:   mustHTTPClient(t, srv.URL),
+		timeout:      5 * time.Second,
+		index:        "test_index",
+		maxRetries:   5,
+		retryTimeout: 200 * time.Millisecond,
+		monitoring:   mon,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- c.Bulk(ctx, payload)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected error after context cancellation")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Bulk did not return after context cancellation")
+	}
 }
 
 // --- Bulk (gRPC path) ---
@@ -556,6 +725,7 @@ func TestBulk_GRPC(t *testing.T) {
 		mon := mocks.NewMockMonitoring(ctrl)
 		mon.EXPECT().IncSearchRequests("fail")
 		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
+		mon.EXPECT().IncBulkExhausted()
 
 		c := &Client{
 			name:       "test",
@@ -575,6 +745,7 @@ func TestBulk_GRPC(t *testing.T) {
 		mon.EXPECT().AddSearchErrors(float64(1))
 		mon.EXPECT().IncSearchRequests("fail")
 		mon.EXPECT().ObserveSearchBulkDuration("fail", gomock.Any())
+		mon.EXPECT().IncBulkExhausted()
 
 		reason := "field type mismatch"
 		c := &Client{

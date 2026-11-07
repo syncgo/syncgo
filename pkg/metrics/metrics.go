@@ -10,6 +10,9 @@ type Metrics struct {
 	bulkDuration  *prometheus.HistogramVec
 
 	batcherBufferSize prometheus.Gauge
+
+	bulkRetriesTotal   prometheus.Counter
+	bulkExhaustedTotal prometheus.Counter
 }
 
 var DefaultMetrics = newMetrics()
@@ -43,6 +46,18 @@ func newMetrics() *Metrics {
 				Help: "Current number of buffered rows in the batcher, including uncommitted ones.",
 			},
 		),
+		bulkRetriesTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "syncgo_search_bulk_retries_total",
+				Help: "Total number of bulk request retry attempts.",
+			},
+		),
+		bulkExhaustedTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "syncgo_search_bulk_exhausted_total",
+				Help: "Total number of bulk requests that failed after exhausting all retries.",
+			},
+		),
 	}
 
 	prometheus.MustRegister(
@@ -50,6 +65,8 @@ func newMetrics() *Metrics {
 		metrics.errorsTotal,
 		metrics.bulkDuration,
 		metrics.batcherBufferSize,
+		metrics.bulkRetriesTotal,
+		metrics.bulkExhaustedTotal,
 	)
 
 	return metrics
@@ -72,4 +89,12 @@ func (m *Metrics) ObserveSearchBulkDuration(status string, seconds float64) {
 
 func (m *Metrics) SetBatcherBufferSize(n int) {
 	m.batcherBufferSize.Set(float64(n))
+}
+
+func (m *Metrics) IncBulkRetry() {
+	m.bulkRetriesTotal.Inc()
+}
+
+func (m *Metrics) IncBulkExhausted() {
+	m.bulkExhaustedTotal.Inc()
 }
