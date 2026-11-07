@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/syncgo/syncgo/internal/processor"
 	"github.com/syncgo/syncgo/pkg/config"
@@ -86,6 +88,16 @@ func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config, configP
 		t.Fatal("e2e; prepare failed; error: ", err)
 	}
 
+	return StartProcessor(t, ctx, cfg, configPath)
+}
+
+// StartProcessor starts the sync process (the run command) without running
+// prepare first. Returns a stop function that cancels the run context and
+// waits for a clean shutdown; it is safe to call multiple times and is also
+// registered on the test cleanup.
+func StartProcessor(t *testing.T, ctx context.Context, cfg *config.Config, configPath string) context.CancelFunc {
+	t.Helper()
+
 	p, err := processor.New(ctx, cfg, configPath, metrics.DefaultMetrics)
 	if err != nil {
 		t.Fatal("e2e; failed to init processor; error: ", err)
@@ -96,12 +108,37 @@ func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config, configP
 	go func() {
 		done <- p.Run(runCtx)
 	}()
-	t.Cleanup(func() {
-		cancel()
-		<-done
-	})
 
-	return cancel
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+	t.Cleanup(stop)
+
+	return stop
+}
+
+// WaitForStreamCaughtUp polls pg_replication_slots until the slot's
+// confirmed_flush_lsn reaches the current WAL position, i.e. the consumer
+// has confirmed everything written so far.
+func WaitForStreamCaughtUp(t *testing.T, ctx context.Context, client *postgresql.Client, slotName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, err := client.Query(ctx,
+			`SELECT confirmed_flush_lsn >= pg_current_wal_lsn()
+			 FROM pg_replication_slots WHERE slot_name = $1`, slotName)
+		if err == nil && len(rows) == 1 && string(rows[0][0]) == "t" {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	t.Fatalf("e2e; sync; replication slot %q did not catch up with WAL within timeout", slotName)
 }
 
 // SetupTable creates (and truncates) the table used by a sync test.
