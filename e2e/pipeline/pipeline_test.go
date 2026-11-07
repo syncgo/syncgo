@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/syncgo/syncgo/e2e/pkg/utils"
+	"github.com/syncgo/syncgo/pkg/config"
 )
 
 const (
@@ -79,4 +80,54 @@ func TestPipeline_UpdateDelete(t *testing.T) {
 
 	utils.AssertDocument(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "2", updatedName)
 	utils.WaitForDocumentAbsent(t, cfg.SearchEngine.Address, cfg.SearchEngine.Index, "3", waitForAbsentTTL)
+}
+
+// TestPipeline_RowFilter syncs a publication created with a row filter: only
+// rows satisfying the filter must reach the search engine, PostgreSQL drops
+// the rest from the replication stream.
+func TestPipeline_RowFilter(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	cfg := utils.LoadConfig(t)
+	const (
+		filterTable = "syncgo_filter"
+		filterIndex = "syncgo_filter_index"
+	)
+	filtered := *cfg
+	filtered.PostgreSQL.Tables = []config.PublicationTable{
+		{Table: "public." + filterTable, Filter: "name != 'hidden'"},
+	}
+	// Distinct publication, slot and index so the test does not clash with
+	// the shared-configuration tests running in parallel.
+	filtered.PostgreSQL.PublicationName = "syncgo_filter_publication"
+	filtered.PostgreSQL.SlotName = "syncgo_filter_slot"
+	filtered.SearchEngine.Index = filterIndex
+
+	client := utils.NewClient(t, ctx, utils.PgConfigFrom(&filtered))
+
+	utils.SetupTable(t, ctx, client, filterTable)
+	t.Cleanup(func() {
+		_ = client.DropPublication(ctx, filtered.PostgreSQL.PublicationName)
+		_ = client.DropReplicationSlot(ctx, filtered.PostgreSQL.SlotName)
+	})
+
+	utils.RunProcessor(t, ctx, &filtered)
+
+	run := time.Now().UnixNano()
+	publishedName := fmt.Sprintf("published-%d", run)
+	hiddenName := fmt.Sprintf("hidden-%d", run)
+
+	// The hidden row does not satisfy the filter and must never appear in
+	// the index; the published row must be synced.
+	utils.InsertRow(t, ctx, client, filterTable, 1, hiddenName)
+	utils.InsertRow(t, ctx, client, filterTable, 2, publishedName)
+
+	utils.AssertDocument(t, filtered.SearchEngine.Address, filterIndex, "2", publishedName)
+	utils.WaitForDocumentAbsent(t, filtered.SearchEngine.Address, filterIndex, "1", waitForAbsentTTL)
+
+	// Updating a published row into the filtered-out state must remove it
+	// from the stream (delete is delivered for old row versions).
+	utils.UpdateRow(t, ctx, client, filterTable, 2, hiddenName)
+	utils.WaitForDocumentAbsent(t, filtered.SearchEngine.Address, filterIndex, "2", waitForAbsentTTL)
 }
