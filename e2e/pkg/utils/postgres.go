@@ -10,7 +10,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/syncgo/syncgo/internal/processor"
 	"github.com/syncgo/syncgo/pkg/config"
@@ -119,26 +118,6 @@ func StartProcessor(t *testing.T, ctx context.Context, cfg *config.Config, confi
 	t.Cleanup(stop)
 
 	return stop
-}
-
-// WaitForStreamCaughtUp polls pg_replication_slots until the slot's
-// confirmed_flush_lsn reaches the current WAL position, i.e. the consumer
-// has confirmed everything written so far.
-func WaitForStreamCaughtUp(t *testing.T, ctx context.Context, client *postgresql.Client, slotName string) {
-	t.Helper()
-
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		rows, err := client.Query(ctx,
-			`SELECT confirmed_flush_lsn >= pg_current_wal_lsn()
-			 FROM pg_replication_slots WHERE slot_name = $1`, slotName)
-		if err == nil && len(rows) == 1 && string(rows[0][0]) == "t" {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	t.Fatalf("e2e; sync; replication slot %q did not catch up with WAL within timeout", slotName)
 }
 
 // SetupTable creates (and truncates) the table used by a sync test.

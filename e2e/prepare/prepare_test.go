@@ -36,6 +36,7 @@ func prepareConfig() *config.Config {
 			Database:        "postgres",
 			PublicationName: "sync_prepare_pub",
 			SlotName:        "sync_prepare_slot",
+			IDColumn:        "id",
 			Tables:          []string{"public." + prepareTable},
 		},
 		SearchEngine: config.SearchEngineConfig{

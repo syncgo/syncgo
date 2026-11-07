@@ -57,10 +57,13 @@ func TestPrepareRun_SnapshotLifecycle(t *testing.T) {
 	utils.AssertDocument(t, address, index, "3", "after-copy-insert")
 	utils.AssertDocument(t, address, index, "2", "updated-after-copy")
 
-	// Phase 3: full restart. Stop syncgo cleanly, let WAL accumulate with no
-	// consumer, then start a fresh run from the same state file.
+	// Phase 3: full restart. Stop syncgo cleanly — the stop is a barrier:
+	// everything written after it is later in the WAL than anything the
+	// first run consumed. Replay of not-yet-confirmed events is idempotent
+	// (index/delete), so the resumed run applies them safely. Let WAL
+	// accumulate with no consumer, then start a fresh run from the same
+	// state file.
 	stop()
-	utils.WaitForStreamCaughtUp(t, ctx, client, cfg.PostgreSQL.SlotName)
 
 	utils.InsertRow(t, ctx, client, lifecycleTable, 4, "while-syncgo-down")
 	utils.UpdateRow(t, ctx, client, lifecycleTable, 1, "updated-while-down")
