@@ -56,10 +56,17 @@ func copyInitialData(ctx context.Context, cfg *config.Config, snapshotName strin
 
 	// Pin the transaction to the exported snapshot before any query: the
 	// whole transaction then sees the database state at the moment the
-	// replication slot was created. SET TRANSACTION SNAPSHOT does not accept
-	// parameters, so the name is quoted into the statement text.
+	// replication slot was created. The statements are sent as separate
+	// Exec calls: Exec uses prepared statements and PostgreSQL forbids
+	// multiple commands in a single prepared statement. SET TRANSACTION
+	// SNAPSHOT does not accept parameters, so the name is quoted into the
+	// statement text.
+	if err := pgConn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ"); err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
 	if err := pgConn.Exec(ctx,
-		fmt.Sprintf("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ; SET TRANSACTION SNAPSHOT %s", quoteLiteral(snapshotName)),
+		fmt.Sprintf("SET TRANSACTION SNAPSHOT %s", quoteLiteral(snapshotName)),
 	); err != nil {
 		return fmt.Errorf("failed to import snapshot %q: %w", snapshotName, err)
 	}
