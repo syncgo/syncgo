@@ -156,11 +156,13 @@ func (c *Client) PublicationTables(ctx context.Context, pubName string) ([]strin
 }
 
 // DropPublication drops the publication if it exists.
+//
+// The publication name is an identifier, not a value, so it cannot be a
+// prepared statement parameter; it is quoted into the SQL text instead.
 func (c *Client) DropPublication(ctx context.Context, pubName string) error {
-	if _, err := c.queryPrepared(ctx,
-		"DROP PUBLICATION IF EXISTS $1",
-		[]string{pubName},
-	); err != nil {
+	sql := "DROP PUBLICATION IF EXISTS " + QuoteIdent(pubName)
+
+	if _, err := c.conn.Exec(ctx, sql).ReadAll(); err != nil {
 		return fmt.Errorf("failed to drop publication %q: %w", pubName, err)
 	}
 
