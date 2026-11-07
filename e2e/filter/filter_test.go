@@ -49,19 +49,22 @@ func TestPipeline_RowFilter(t *testing.T) {
 	client := utils.NewClient(t, ctx, utils.PgConfigFrom(cfg))
 
 	utils.SetupTable(t, ctx, client, filterTable)
-	// Drop leftovers from a previous run first: EnsurePublication is
-	// idempotent and would keep an existing publication (possibly created
-	// without the filter), and an old index may still contain documents
-	// from a failed run, silently breaking this test.
-	_ = client.DropPublication(ctx, cfg.PostgreSQL.PublicationName)
-	_ = client.DropReplicationSlot(ctx, cfg.PostgreSQL.SlotName)
+
+	// teardown drops the publication and slot; it runs both before the test
+	// (leftovers from a previous run would break it: EnsurePublication is
+	// idempotent and would keep a publication created without the filter)
+	// and after it via t.Cleanup.
+	teardown := func() {
+		_ = client.DropPublication(ctx, cfg.PostgreSQL.PublicationName)
+		_ = client.DropReplicationSlot(ctx, cfg.PostgreSQL.SlotName)
+	}
+	// An old index may still contain documents from a failed run, silently
+	// breaking this test.
 	if resp, err := utils.DoRequest(t, "DELETE", cfg.SearchEngine.Address+"/"+filterIndex); err == nil {
 		_ = resp.Body.Close()
 	}
-	t.Cleanup(func() {
-		_ = client.DropPublication(ctx, cfg.PostgreSQL.PublicationName)
-		_ = client.DropReplicationSlot(ctx, cfg.PostgreSQL.SlotName)
-	})
+	teardown()
+	t.Cleanup(teardown)
 
 	utils.RunProcessor(t, ctx, cfg)
 
