@@ -93,9 +93,10 @@ func loadConfig(args []string) *config.Config {
 // Every step is idempotent: existing objects are left as is.
 func runPrepare(args []string) {
 	ctx := context.Background()
+	cfgPath := parseConfigFlag(args)
 	cfg := loadConfig(args)
 
-	if err := processor.Prepare(ctx, cfg, metrics.DefaultMetrics); err != nil {
+	if err := processor.Prepare(ctx, cfg, cfgPath, metrics.DefaultMetrics); err != nil {
 		logger.Error("prepare failed", err)
 		os.Exit(1)
 	}
@@ -109,9 +110,10 @@ func runRun(args []string) {
 	ctx, cancel := contextWithSignals()
 	defer cancel()
 
+	cfgPath := parseConfigFlag(args)
 	cfg := loadConfig(args)
 
-	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
+	p, err := processor.New(ctx, cfg, cfgPath, metrics.DefaultMetrics)
 	if err != nil {
 		logger.Error("failed to initialize processor", err)
 		os.Exit(1)

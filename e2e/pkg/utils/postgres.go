@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/syncgo/syncgo/internal/processor"
@@ -77,15 +78,26 @@ func NewClient(t *testing.T, ctx context.Context, pgCfg postgresql.Config) *post
 
 // RunProcessor runs prepare (creates publication, slot and index) and then
 // starts the sync process, stopping it on test cleanup. Returns the cancel
-// function for the run context.
-func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config) context.CancelFunc {
+// function for the run context. The state file with the consistent point is
+// written next to the suite's config file.
+func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config, configPath string) context.CancelFunc {
 	t.Helper()
 
-	if err := processor.Prepare(ctx, cfg, metrics.DefaultMetrics); err != nil {
+	if err := processor.Prepare(ctx, cfg, configPath, metrics.DefaultMetrics); err != nil {
 		t.Fatal("e2e; prepare failed; error: ", err)
 	}
 
-	p, err := processor.New(ctx, cfg, metrics.DefaultMetrics)
+	return StartProcessor(t, ctx, cfg, configPath)
+}
+
+// StartProcessor starts the sync process (the run command) without running
+// prepare first. Returns a stop function that cancels the run context and
+// waits for a clean shutdown; it is safe to call multiple times and is also
+// registered on the test cleanup.
+func StartProcessor(t *testing.T, ctx context.Context, cfg *config.Config, configPath string) context.CancelFunc {
+	t.Helper()
+
+	p, err := processor.New(ctx, cfg, configPath, metrics.DefaultMetrics)
 	if err != nil {
 		t.Fatal("e2e; failed to init processor; error: ", err)
 	}
@@ -95,12 +107,17 @@ func RunProcessor(t *testing.T, ctx context.Context, cfg *config.Config) context
 	go func() {
 		done <- p.Run(runCtx)
 	}()
-	t.Cleanup(func() {
-		cancel()
-		<-done
-	})
 
-	return cancel
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+	t.Cleanup(stop)
+
+	return stop
 }
 
 // SetupTable creates (and truncates) the table used by a sync test.

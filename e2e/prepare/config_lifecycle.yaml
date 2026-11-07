@@ -1,0 +1,19 @@
+postgresql:
+  user: postgres
+  password: postgres
+  host: localhost
+  port: 5432
+  database: postgres
+  slot_name: sync_lifecycle_slot
+  publication_name: sync_lifecycle_pub
+  tables:
+    - public.sync_lifecycle_rows
+search_engine:
+  name: elasticsearch
+  address: http://localhost:9200
+  username: admin
+  password: Es123456
+  index: sync_lifecycle_index
+batcher:
+  size: 100
+  flush_interval: 50ms

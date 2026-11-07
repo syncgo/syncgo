@@ -47,7 +47,7 @@ jobs:
 
       - name: Show syncgo logs
         if: failure()
-        run: cat syncgo.log
+        run: cat syncgo.log || echo "syncgo.log not found (run step never started)"
 
       - name: Stop services
         if: always()
@@ -91,7 +91,7 @@ jobs:
 
       - name: Show syncgo logs
         if: failure()
-        run: docker logs syncgo
+        run: docker logs syncgo 2>&1 || echo "container syncgo not found (run step never started)"
 
       - name: Stop services
         if: always()
@@ -113,7 +113,7 @@ jobs:
         run: docker compose -f e2e/docker-compose.yml up -d --wait --wait-timeout 300
 
       - name: E2E testing
-        run: go test -v -tags e2e -timeout 5m ./e2e/postgresql/... ./e2e/elastic/... ./e2e/opensearch/...
+        run: go test -v -tags e2e -timeout 5m ./e2e/postgresql/... ./e2e/prepare/... ./e2e/elastic/... ./e2e/opensearch/...
 
       - name: Stop services
         if: always()

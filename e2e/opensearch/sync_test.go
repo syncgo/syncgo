@@ -20,7 +20,7 @@ func TestOpensearchSync_ReplicatesRowsFromPostgres(t *testing.T) {
 
 	utils.SetupTable(t, ctx, client, syncOpensearchTable)
 
-	utils.RunProcessor(t, ctx, cfg)
+	utils.RunProcessor(t, ctx, cfg, "config_sync_opensearch.yaml")
 
 	utils.InsertRow(t, ctx, client, syncOpensearchTable, 1, "foo")
 	utils.InsertRow(t, ctx, client, syncOpensearchTable, 2, "bar")

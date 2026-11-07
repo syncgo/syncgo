@@ -20,7 +20,7 @@ func TestElasticsearchSync_ReplicatesRowsFromPostgres(t *testing.T) {
 
 	utils.SetupTable(t, ctx, client, syncElasticTable)
 
-	utils.RunProcessor(t, ctx, cfg)
+	utils.RunProcessor(t, ctx, cfg, "config_sync_elasticsearch.yaml")
 
 	utils.InsertRow(t, ctx, client, syncElasticTable, 1, "foo")
 	utils.InsertRow(t, ctx, client, syncElasticTable, 2, "bar")

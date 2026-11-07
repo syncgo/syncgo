@@ -4,6 +4,8 @@
 
 SyncGo uses PostgreSQL logical replication to consume database changes and writes them to the configured search engine in batches.
 
+[![CI](https://github.com/syncgo/syncgo/actions/workflows/ci.yml/badge.svg)](https://github.com/syncgo/syncgo/actions/workflows/ci.yml) [![E2E](https://github.com/syncgo/syncgo/actions/workflows/e2e.yml/badge.svg)](https://github.com/syncgo/syncgo/actions/workflows/e2e.yml) [![CD](https://github.com/syncgo/syncgo/actions/workflows/cd.yml/badge.svg)](https://github.com/syncgo/syncgo/actions/workflows/cd.yml)
+
 # Installation
 
 ## Docker
